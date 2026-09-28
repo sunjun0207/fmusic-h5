@@ -1,0 +1,44 @@
+# fmusic-h5 本地 Docker 联调:用 .env.local 构建,nginx 纯 HTTP 托管 + /proxy/* 反代(验证生产形态,不含 TLS)。
+#
+# 构建:pnpm run docker:local:build
+# 启动:pnpm run docker:local:up      → http://localhost:8080
+# 日志:pnpm run docker:local:logs
+# 停止:pnpm run docker:local:down
+#
+# 端口可用环境变量覆盖:HTTP_PORT=9000 pnpm run docker:local:up
+#
+# 三个 compose 文件使用不同的 project name,互不干扰(否则同目录默认同名,up/down 会互相覆盖)。
+
+name: fmusic-h5-local
+
+services:
+  fmusic-h5:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_MODE: local
+        NPM_REGISTRY: https://registry.npmmirror.com
+        ALPINE_APK_REPO_MIRROR: https://mirrors.aliyun.com
+    image: fmusic-h5:local
+    container_name: fmusic-h5-local
+    restart: unless-stopped
+    # 为 nginx 反代模板提供 VITE_*_TARGET(与 vite 开发代理同一份地址)
+    env_file:
+      - .env.local
+    environment:
+      TZ: Asia/Shanghai
+      SSL_ENABLED: 'false'
+      SERVER_NAME: _
+    ports:
+      - '${HTTP_PORT:-8080}:80'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1/healthz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128M

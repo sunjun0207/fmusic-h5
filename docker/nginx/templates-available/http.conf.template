@@ -1,0 +1,8 @@
+# SSL_ENABLED=false 时使用:纯 HTTP 托管(本地 docker 联调 / 前置已有网关终结 TLS 的场景)
+server {
+    listen      80;
+    listen      [::]:80;
+    server_name ${SERVER_NAME};
+
+    include /etc/nginx/snippets/app-locations.conf;
+}

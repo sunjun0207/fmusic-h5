@@ -1,0 +1,76 @@
+# 由 10-fmusic-select-templates.sh 在容器启动时用 envsubst 渲染到 /etc/nginx/snippets/app-locations.conf,
+# 再被 http / https 两个 server 模板 include。
+#
+# ${VITE_*_TARGET} 来自 compose env_file 加载的 .env.local / .env.dev / .env.pro,
+# 与 vite.config.ts 的 server.proxy 使用同一份目标地址,保证开发 / 生产代理一致。
+# 只有白名单变量会被替换,nginx 自身的 $uri / $host 等不受影响。
+
+root  /usr/share/nginx/html;
+index index.html;
+
+# 反代超时默认值(server 层级,各 location 可单独覆盖,如 kw-cdn)
+proxy_connect_timeout 10s;
+proxy_send_timeout    30s;
+proxy_read_timeout    60s;
+
+# 健康检查(Dockerfile HEALTHCHECK / compose healthcheck)
+location = /healthz {
+    access_log off;
+    default_type text/plain;
+    return 200 'ok';
+}
+
+# vite 产物带 hash,可长缓存
+location /assets/ {
+    expires 1y;
+    try_files $uri =404;
+}
+
+# SPA 入口:index.html 不缓存,其他路径回落到 index.html
+location / {
+    expires -1;
+    try_files $uri $uri/ /index.html;
+}
+
+# ---------------- 反向代理:与 vite.config.ts server.proxy 一一对应 ----------------
+
+# 自有 API:更新 / 公告 / access·search·download 上报
+location /proxy/api/ {
+    proxy_pass ${VITE_API_TARGET}/api/;
+    include /etc/nginx/snippets/proxy-common.conf;
+}
+
+# 酷我搜索
+location /proxy/kw-search/ {
+    proxy_pass ${VITE_KW_SEARCH_TARGET}/;
+    include /etc/nginx/snippets/proxy-common.conf;
+}
+
+# 酷我 openapi:联想词 / 歌词
+location /proxy/kw-openapi/ {
+    proxy_pass ${VITE_KW_OPENAPI_TARGET}/;
+    include /etc/nginx/snippets/proxy-common.conf;
+}
+
+# 酷我播放地址(需伪装 okhttp UA,见 vite.config.ts)
+location /proxy/kw-nmobi/ {
+    proxy_pass ${VITE_KW_NMOBI_TARGET}/;
+    include /etc/nginx/snippets/proxy-common.conf;
+    proxy_set_header User-Agent "okhttp/3.10.0";
+}
+
+# 酷我封面图
+location /proxy/kw-img/ {
+    proxy_pass ${VITE_KW_IMG_TARGET}/;
+    include /etc/nginx/snippets/proxy-common.conf;
+    expires 7d;
+}
+
+# 酷我音频 CDN:流式转发,不落缓冲,Range 请求原样透传
+location /proxy/kw-cdn/ {
+    proxy_pass ${VITE_KW_CDN_TARGET}/;
+    include /etc/nginx/snippets/proxy-common.conf;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_read_timeout 300s;
+}

@@ -1,0 +1,32 @@
+# SSL_ENABLED=true 时使用:443 终结 TLS
+# 证书由 compose 挂载:
+#   ./docker/<env>/ssl/fullchain.pem -> /etc/nginx/ssl/fullchain.pem(服务器证书 + 中间证书)
+#   ./docker/<env>/ssl/privkey.pem   -> /etc/nginx/ssl/privkey.pem  (私钥)
+# 命名与 certbot 默认一致;若只有 cert.pem + chain.pem,可 cat cert.pem chain.pem > fullchain.pem。
+server {
+    listen      443 ssl;
+    listen      [::]:443 ssl;
+    http2       on;
+    server_name ${SERVER_NAME};
+
+    ssl_certificate     /etc/nginx/ssl/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
+
+    ssl_session_timeout 1d;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_tickets off;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    # 浏览器对 443 端口发明文 HTTP(如地址栏只输 localhost:8443 被补成 http://)时,
+    # nginx 内部状态码为 497,这里改为 301 跳转到 https;$http_host 带浏览器实际使用的端口
+    error_page 497 =301 https://$http_host$request_uri;
+
+    # HSTS:值为空时 nginx 不输出该头。
+    # HSTS_HEADER 默认 "max-age=31536000"(dev / pro);local-https 置空,
+    # 否则一旦自签证书被加入受信任根,Chrome 会对 localhost 所有端口强制 https,连 vite :5173 都打不开。
+    # app-locations 里不使用 add_header,因此这里的头能正常继承到各 location
+    add_header Strict-Transport-Security "${HSTS_HEADER}" always;
+
+    include /etc/nginx/snippets/app-locations.conf;
+}

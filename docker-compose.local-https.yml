@@ -1,0 +1,78 @@
+# fmusic-h5 本地 HTTPS 联调:用 .env.local 构建,nginx 用自签证书终结 TLS,完整模拟 dev / pro 的 HTTPS 形态。
+#
+# 1. 生成自签证书(只需一次,CN=localhost,SAN 含 localhost / 127.0.0.1,有效期 1 年,输出到 docker/local/ssl/):
+#      pnpm run docker:local:https:cert
+# 2. 构建并启动:
+#      pnpm run docker:local:https:build
+#      pnpm run docker:local:https:up
+#    访问 https://localhost:8443(浏览器提示"不安全"属正常,点"继续访问";或按 README 把证书加入受信任根)
+#    http://localhost:8081 会 301 跳转到 https://localhost:8443
+# 3. 停止:pnpm run docker:local:https:down
+#
+# 默认端口 8081 / 8443,与 docker-compose.local.yml 的 8080 不冲突,两套可同时运行;
+# 可用 HTTP_PORT / HTTPS_PORT 覆盖,改 HTTPS_PORT 时需同步改 HTTPS_REDIRECT_PORT。
+
+name: fmusic-h5-local-https
+
+services:
+  fmusic-h5:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_MODE: local
+        NPM_REGISTRY: https://registry.npmmirror.com
+        ALPINE_APK_REPO_MIRROR: https://mirrors.aliyun.com
+    image: fmusic-h5:local
+    container_name: fmusic-h5-local-https
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    environment:
+      TZ: Asia/Shanghai
+      SSL_ENABLED: 'true'
+      SERVER_NAME: localhost
+      # 容器 443 映射到宿主机 8443,跳转时要带上端口
+      HTTPS_REDIRECT_PORT: ':${HTTPS_PORT:-8443}'
+      # 本地必须关掉 HSTS:自签证书一旦被信任,Chrome 会对 localhost 所有端口强制 https(含 vite :5173、docker :8080)
+      HSTS_HEADER: ''
+    ports:
+      - '${HTTP_PORT:-8081}:80'
+      - '${HTTPS_PORT:-8443}:443'
+    volumes:
+      - ./docker/local/ssl/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
+      - ./docker/local/ssl/privkey.pem:/etc/nginx/ssl/privkey.pem:ro
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1/healthz']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  # 一次性工具:生成自签证书。带 profile,`up` 时不会启动,只能显式 `run`:
+  #   docker compose -f docker-compose.local-https.yml run --rm gen-cert
+  gen-cert:
+    image: alpine/openssl
+    profiles: ['tools']
+    volumes:
+      - ./docker/local/ssl:/out
+    command:
+      - req
+      - -x509
+      - -newkey
+      - rsa:2048
+      - -nodes
+      - -days
+      - '365'
+      - -subj
+      - /CN=localhost
+      - -addext
+      - subjectAltName=DNS:localhost,IP:127.0.0.1
+      - -keyout
+      - /out/privkey.pem
+      - -out
+      - /out/fullchain.pem

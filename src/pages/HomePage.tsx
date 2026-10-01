@@ -14,7 +14,7 @@ export function HomePage({ onOpenSearch, onOpenMusic }: Props) {
   return (
     <div>
       <section className="hero-card">
-        <h1>聆听xuejun.yan</h1>
+        <h1>聆听jun.sun</h1>
         <p>搜歌、听歌、记下载。轻量网页听歌。</p>
         <button
           type="button"

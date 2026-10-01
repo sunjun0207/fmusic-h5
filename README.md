@@ -1,4 +1,4 @@
-# 聆听xuejun.yan（fmusic-h5）
+# 聆听jun.sun（fmusic-h5）
 
 Vite + React + TypeScript 网页听歌：搜歌 / 播放 / 歌词 / 下载记录，酷我直连 + 自有 API。
 
@@ -233,7 +233,7 @@ user=0&corp=kuwo&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk&p2p=1&type=convert_
 ### H5 与 App 差异
 
 - 下载无法直接写系统文件，下载页记录 URL，可「打开」或标记已下载。
-- 版本号展示为 `1.0.10 H5`，联系邮箱 `111977746@qq.com`。
+- 版本号展示为 `1.0.10 H5`，联系邮箱 `sunjun0207@163.com`。
 
 ## 技术栈
 

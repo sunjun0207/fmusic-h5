@@ -50,7 +50,7 @@ export function SettingPage() {
       <div className="setting-group">
         <div className="setting-row">
           <div>名称</div>
-          <div className="song-sub">聆听xuejun.yan</div>
+          <div className="song-sub">聆听jun.sun</div>
         </div>
         <div className="setting-row">
           <div>版本</div>
@@ -58,8 +58,8 @@ export function SettingPage() {
         </div>
         <div className="setting-row">
           <div>联系邮箱</div>
-          <a href="mailto:111977746@qq.com" className="song-sub">
-            111977746@qq.com
+          <a href="mailto:sunjun0207@163.com" className="song-sub">
+            sunjun0207@163.com
           </a>
         </div>
         <div className="setting-row">

@@ -8,7 +8,7 @@ type Props = {
   right?: ReactNode
 }
 
-export function TopBar({ title = '聆听xuejun.yan', subtitle, showBack, onBack, right }: Props) {
+export function TopBar({ title = '聆听jun.sun', subtitle, showBack, onBack, right }: Props) {
   return (
     <header className="top-bar">
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>

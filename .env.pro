@@ -2,7 +2,7 @@
 # 使用方式:npm run build(默认)或 npm run build:pro
 
 VITE_APP_ENV=pro
-VITE_APP_TITLE=聆听xuejun.yan
+VITE_APP_TITLE=聆听jun.sun
 
 VITE_BASE=/
 # 生产不输出 sourcemap

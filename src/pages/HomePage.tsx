@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { MusicItem } from '../lib/types'
 import { SongRow } from '../components/SongRow'
 import { getRecentPlays } from '../lib/storage'
@@ -6,10 +6,18 @@ import { getRecentPlays } from '../lib/storage'
 type Props = {
   onOpenSearch: () => void
   onOpenMusic: (item: MusicItem, queue?: MusicItem[]) => void
+  onOpenQueue: () => void
+  queue: MusicItem[]
+  current: MusicItem | null
+  recentVersion: number
 }
 
-export function HomePage({ onOpenSearch, onOpenMusic }: Props) {
-  const [recent] = useState(() => getRecentPlays())
+export function HomePage({ onOpenSearch, onOpenMusic, onOpenQueue, queue, current, recentVersion }: Props) {
+  const [recent, setRecent] = useState(() => getRecentPlays())
+
+  useEffect(() => {
+    setRecent(getRecentPlays())
+  }, [recentVersion])
 
   return (
     <div>
@@ -26,6 +34,16 @@ export function HomePage({ onOpenSearch, onOpenMusic }: Props) {
         </button>
       </section>
 
+      {queue.length > 0 ? (
+        <button type="button" className="queue-entry" onClick={onOpenQueue}>
+          <span>
+            <strong>当前播放</strong>
+            {current ? <em>{current.title}</em> : null}
+          </span>
+          <span>{queue.length} 首</span>
+        </button>
+      ) : null}
+
       <div className="section-title">
         最近播放
         <span>{recent.length ? `${recent.length} 首` : '还没有记录'}</span>
@@ -33,12 +51,13 @@ export function HomePage({ onOpenSearch, onOpenMusic }: Props) {
       {recent.length === 0 ? (
         <div className="empty">从搜索开始，点开歌曲即可播放</div>
       ) : (
-        recent.slice(0, 20).map((item, i) => (
+        recent.map((item, i) => (
           <SongRow
             key={item.id}
             item={item}
             index={i}
-            onClick={() => onOpenMusic(item, recent.slice(0, 20))}
+            active={item.id === current?.id}
+            onClick={() => onOpenMusic(item, recent)}
           />
         ))
       )}

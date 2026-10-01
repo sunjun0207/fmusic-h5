@@ -1,10 +1,45 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { coverUrl, getLyric, getPlayMeta, postDownload } from '../lib/api'
 import { requestDownload, trackExt, trackFilename } from '../lib/download'
-import { addRecentPlay, getSettings, isFavorite, toggleFavorite, upsertDownload } from '../lib/storage'
-import type { DownloadTask, LyricLine, MusicItem, QualityOption } from '../lib/types'
+import { PLAY_MODE_LABEL } from '../lib/playback'
+import { getSettings, isFavorite, toggleFavorite, upsertDownload } from '../lib/storage'
+import type { DownloadTask, LyricLine, MusicItem, PlayMode, QualityOption } from '../lib/types'
 import { DownloadSheet } from '../components/DownloadSheet'
 import { TopBar } from '../components/TopBar'
+
+function PlayModeIcon({ mode }: { mode: PlayMode }) {
+  if (mode === 'single') {
+    return (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path d="M17 3l3 3-3 3" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M7 21l-3-3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M20 6H9a5 5 0 0 0-5 5v1" strokeLinecap="round" />
+        <path d="M4 18h11a5 5 0 0 0 5-5v-1" strokeLinecap="round" />
+        <path d="M11.2 9.2h1.2V15" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (mode === 'shuffle') {
+    return (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+        <path d="M4 7h2.8c2.2 0 3.3 1.1 4.7 2.8" strokeLinecap="round" />
+        <path d="M4 17h2.8c2.2 0 3.3-1.1 4.7-2.8" strokeLinecap="round" />
+        <path d="M14 10.2c1.2-1.5 2.2-2.2 3.8-2.2H20" strokeLinecap="round" />
+        <path d="M14 13.8c1.2 1.5 2.2 2.2 3.8 2.2H20" strokeLinecap="round" />
+        <path d="M16.5 5.5 20 8l-3.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M16.5 13.5 20 16l-3.5 2.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M17 3l3 3-3 3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7 21l-3-3 3-3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 6H8a4 4 0 0 0-4 4v1" strokeLinecap="round" />
+      <path d="M4 18h12a4 4 0 0 0 4-4v-1" strokeLinecap="round" />
+    </svg>
+  )
+}
 
 function fmt(sec: number) {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -20,11 +55,14 @@ type Props = {
   duration: number
   canPrev: boolean
   canNext: boolean
+  playMode: PlayMode
   onBack: () => void
   onTogglePlay: () => void
   onSeek: (t: number) => void
   onPrev: () => void
   onNext: () => void
+  onCycleMode: () => void
+  onOpenQueue: () => void
   onEnsurePlay: (music: MusicItem, br?: string) => Promise<void>
 }
 
@@ -41,6 +79,9 @@ export function MusicDetailPage({
   onPrev,
   onNext,
   onEnsurePlay,
+  playMode,
+  onCycleMode,
+  onOpenQueue,
 }: Props) {
   const [lyrics, setLyrics] = useState<LyricLine[]>([])
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -55,7 +96,6 @@ export function MusicDetailPage({
   }, [music.id])
 
   useEffect(() => {
-    addRecentPlay(music)
     let cancelled = false
     setLyrics([])
     getLyric(music.id)
@@ -181,41 +221,62 @@ export function MusicDetailPage({
         </div>
       </div>
 
-      <div className="player-controls">
-        <button
-          type="button"
-          className="ctrl-btn"
-          onClick={onPrev}
-          disabled={!canPrev}
-          aria-label="上一首"
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M6 6h2v12H6V6Zm3.5 6 8.5 6V6l-8.5 6Z" />
-          </svg>
-        </button>
-        <button type="button" className="play-btn" onClick={onTogglePlay} aria-label={playing ? '暂停' : '播放'}>
-          {playing ? (
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="5" width="4" height="14" rx="1" />
-              <rect x="14" y="5" width="4" height="14" rx="1" />
+      <div className="player-block">
+        <p className="play-mode-label" aria-live="polite">
+          {PLAY_MODE_LABEL[playMode]}
+        </p>
+        <div className="player-controls">
+          <button
+            type="button"
+            className="ctrl-btn ctrl-side"
+            onClick={onCycleMode}
+            aria-label={`${PLAY_MODE_LABEL[playMode]}，点击切换`}
+          >
+            <PlayModeIcon mode={playMode} />
+          </button>
+          <div className="player-main">
+            <button
+              type="button"
+              className="ctrl-btn"
+              onClick={onPrev}
+              disabled={!canPrev}
+              aria-label="上一首"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M6 6h2v12H6V6Zm3.5 6 8.5 6V6l-8.5 6Z" />
+              </svg>
+            </button>
+            <button type="button" className="play-btn" onClick={onTogglePlay} aria-label={playing ? '暂停' : '播放'}>
+              {playing ? (
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="5" width="4" height="14" rx="1" />
+                  <rect x="14" y="5" width="4" height="14" rx="1" />
+                </svg>
+              ) : (
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              className="ctrl-btn"
+              onClick={onNext}
+              disabled={!canNext}
+              aria-label="下一首"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M16 6h2v12h-2V6ZM6 18l8.5-6L6 6v12Z" />
+              </svg>
+            </button>
+          </div>
+          <button type="button" className="ctrl-btn ctrl-side" onClick={onOpenQueue} aria-label="播放列表">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M9 7h11M9 12h11M9 17h11" strokeLinecap="round" />
+              <path d="M4 7h.01M4 12h.01M4 17h.01" strokeLinecap="round" />
             </svg>
-          ) : (
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M8 5.5v13l11-6.5-11-6.5Z" />
-            </svg>
-          )}
-        </button>
-        <button
-          type="button"
-          className="ctrl-btn"
-          onClick={onNext}
-          disabled={!canNext}
-          aria-label="下一首"
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M16 6h2v12h-2V6ZM6 18l8.5-6L6 6v12Z" />
-          </svg>
-        </button>
+          </button>
+        </div>
       </div>
 
       {msg ? <div className="empty" style={{ padding: 8 }}>{msg}</div> : null}

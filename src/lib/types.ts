@@ -55,6 +55,8 @@ export type AppSettings = {
   showNotification: boolean
 }
 
+export type PlayMode = 'list' | 'single' | 'shuffle'
+
 export type PlayMeta = {
   url: string
   format: string

@@ -1,4 +1,4 @@
-import type { AppSettings, DownloadTask, MusicItem } from './types'
+import type { AppSettings, DownloadTask, MusicItem, PlayMode } from './types'
 
 const KEYS = {
   uid: 'fmusic_uid',
@@ -8,6 +8,7 @@ const KEYS = {
   dismissedNotification: 'fmusic_dismissed_notification',
   recentPlays: 'fmusic_recent_plays',
   favorites: 'fmusic_favorites',
+  playMode: 'fmusic_play_mode',
 } as const
 
 function readJson<T>(key: string, fallback: T): T {
@@ -136,4 +137,15 @@ export function removeFavorite(id: string) {
 
 export function clearFavorites() {
   writeJson(KEYS.favorites, [])
+}
+
+const PLAY_MODES: PlayMode[] = ['list', 'single', 'shuffle']
+
+export function getPlayMode(): PlayMode {
+  const raw = localStorage.getItem(KEYS.playMode)
+  return PLAY_MODES.includes(raw as PlayMode) ? (raw as PlayMode) : 'list'
+}
+
+export function savePlayMode(mode: PlayMode) {
+  localStorage.setItem(KEYS.playMode, mode)
 }

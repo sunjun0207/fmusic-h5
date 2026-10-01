@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { BottomBar } from './components/BottomBar'
 import { Dialogs } from './components/Dialogs'
 import { DownloadGuide } from './components/DownloadGuide'
+import { PlayQueueSheet } from './components/PlayQueueSheet'
 import { TopBar } from './components/TopBar'
 import {
   clearPendingDownload,
@@ -11,12 +12,17 @@ import {
   type PendingDownload,
 } from './lib/download'
 import { coverUrl, getNotification, getPlayMeta, getUpdate, postAccess } from './lib/api'
+import { nextPlayMode, resolveAdvance } from './lib/playback'
 import {
+  addRecentPlay,
   getDismissedNotification,
+  getPlayMode,
+  getRecentPlays,
   getSettings,
+  savePlayMode,
   setDismissedNotification,
 } from './lib/storage'
-import type { MusicItem, NotificationInfo, TabId, UpdateInfo } from './lib/types'
+import type { MusicItem, NotificationInfo, PlayMode, TabId, UpdateInfo } from './lib/types'
 import { DownloadPage } from './pages/DownloadPage'
 import { FavoritePage } from './pages/FavoritePage'
 import { HomePage } from './pages/HomePage'
@@ -34,6 +40,9 @@ export default function App() {
   const [dlGuideHidden, setDlGuideHidden] = useState(false)
   const [dlSaving, setDlSaving] = useState(false)
   const [dlError, setDlError] = useState('')
+  const [playMode, setPlayMode] = useState<PlayMode>(() => getPlayMode())
+  const [queueOpen, setQueueOpen] = useState(false)
+  const [recentVersion, setRecentVersion] = useState(0)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [current, setCurrent] = useState<MusicItem | null>(null)
@@ -43,6 +52,8 @@ export default function App() {
   const playToken = useRef(0)
   const queueRef = useRef<MusicItem[]>([])
   const currentRef = useRef<MusicItem | null>(null)
+  const playModeRef = useRef<PlayMode>(playMode)
+  const playHistoryRef = useRef<string[]>([])
 
   useEffect(() => {
     queueRef.current = queue
@@ -52,11 +63,17 @@ export default function App() {
     currentRef.current = current
   }, [current])
 
+  useEffect(() => {
+    playModeRef.current = playMode
+  }, [playMode])
+
   const ensurePlay = useCallback(async (music: MusicItem, br?: string) => {
     const audio = audioRef.current
     if (!audio) return
     const token = ++playToken.current
     setCurrent(music)
+    addRecentPlay(music)
+    setRecentVersion((v) => v + 1)
     setDetail((d) => (d ? music : d))
     try {
       const quality = br || getSettings().quality
@@ -74,15 +91,58 @@ export default function App() {
 
   const playRelative = useCallback(
     (delta: number) => {
-      const list = queueRef.current
       const cur = currentRef.current
-      if (!list.length || !cur) return
-      const idx = list.findIndex((x) => x.id === cur.id)
-      if (idx < 0) return
-      const next = list[(idx + delta + list.length) % list.length]
-      if (!next) return
-      setDetail(next)
-      void ensurePlay(next)
+      if (!cur) return
+      const result = resolveAdvance({
+        list: queueRef.current,
+        currentId: cur.id,
+        mode: playModeRef.current,
+        direction: delta < 0 ? 'prev' : 'next',
+        history: playHistoryRef.current,
+      })
+      playHistoryRef.current = result.history
+      const audio = audioRef.current
+      if (result.replay || !result.item || result.item.id === cur.id) {
+        if (!audio) return
+        audio.currentTime = 0
+        void audio.play().catch(() => setPlaying(false))
+        return
+      }
+      setDetail(result.item)
+      void ensurePlay(result.item)
+    },
+    [ensurePlay],
+  )
+
+  const cyclePlayMode = useCallback(() => {
+    setPlayMode((mode) => {
+      const next = nextPlayMode(mode)
+      savePlayMode(next)
+      if (next !== 'shuffle') playHistoryRef.current = []
+      return next
+    })
+  }, [])
+
+  const playFromList = useCallback(
+    (item: MusicItem, nextQueue?: MusicItem[]) => {
+      if (nextQueue) {
+        setQueue(nextQueue)
+        playHistoryRef.current = []
+      } else if (
+        playModeRef.current === 'shuffle' &&
+        currentRef.current &&
+        currentRef.current.id !== item.id
+      ) {
+        playHistoryRef.current = [...playHistoryRef.current, currentRef.current.id].slice(-50)
+      }
+      setQueueOpen(false)
+      if (currentRef.current?.id === item.id) {
+        const audio = audioRef.current
+        if (audio?.paused) void audio.play().catch(() => setPlaying(false))
+        return
+      }
+      setDetail((d) => (d ? item : d))
+      void ensurePlay(item)
     },
     [ensurePlay],
   )
@@ -108,18 +168,26 @@ export default function App() {
     const onPlay = () => setPlaying(true)
     const onPause = () => setPlaying(false)
     const onEnded = () => {
-      const list = queueRef.current
       const cur = currentRef.current
-      if (list.length > 1 && cur) {
-        const idx = list.findIndex((x) => x.id === cur.id)
-        const next = list[(idx + 1) % list.length]
-        if (next) {
-          setDetail(next)
-          void ensurePlay(next)
-          return
-        }
+      if (!cur) {
+        setPlaying(false)
+        return
       }
-      setPlaying(false)
+      const result = resolveAdvance({
+        list: queueRef.current,
+        currentId: cur.id,
+        mode: playModeRef.current,
+        direction: 'ended',
+        history: playHistoryRef.current,
+      })
+      playHistoryRef.current = result.history
+      if (result.replay || !result.item || result.item.id === cur.id) {
+        audio.currentTime = 0
+        void audio.play().catch(() => setPlaying(false))
+        return
+      }
+      setDetail((d) => (d ? result.item : d))
+      void ensurePlay(result.item)
     }
 
     audio.addEventListener('timeupdate', onTime)
@@ -177,6 +245,7 @@ export default function App() {
   const openMusic = (item: MusicItem, list?: MusicItem[]) => {
     const q = list && list.length ? list : [item]
     setQueue(q)
+    playHistoryRef.current = []
     setDetail(item)
     void ensurePlay(item)
   }
@@ -217,11 +286,21 @@ export default function App() {
             onPrev={() => playRelative(-1)}
             onNext={() => playRelative(1)}
             onEnsurePlay={ensurePlay}
+            playMode={playMode}
+            onCycleMode={cyclePlayMode}
+            onOpenQueue={() => setQueueOpen(true)}
           />
         ) : (
           <>
             {tab === 'home' && (
-              <HomePage onOpenSearch={() => setTab('search')} onOpenMusic={openMusic} />
+              <HomePage
+                onOpenSearch={() => setTab('search')}
+                onOpenMusic={openMusic}
+                onOpenQueue={() => setQueueOpen(true)}
+                queue={queue}
+                current={current}
+                recentVersion={recentVersion}
+              />
             )}
             {tab === 'search' && <SearchPage onOpenMusic={openMusic} />}
             {tab === 'favorite' && <FavoritePage onOpenMusic={openMusic} />}
@@ -254,6 +333,21 @@ export default function App() {
             type="button"
             className="icon-btn"
             style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: 'none' }}
+            aria-label="播放列表"
+            onClick={(e) => {
+              e.stopPropagation()
+              setQueueOpen(true)
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M9 7h11M9 12h11M9 17h11" strokeLinecap="round" />
+              <path d="M4 7h.01M4 12h.01M4 17h.01" strokeLinecap="round" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: 'none' }}
             onClick={(e) => {
               e.stopPropagation()
               togglePlay()
@@ -275,6 +369,19 @@ export default function App() {
             setDismissedNotification(`${notification.title}|${notification.create_time}`)
           }
           setNotification(null)
+        }}
+      />
+      <PlayQueueSheet
+        open={queueOpen}
+        queue={queue}
+        recent={queueOpen ? getRecentPlays() : []}
+        currentId={current?.id ?? null}
+        onClose={() => setQueueOpen(false)}
+        onPickQueue={(item) => playFromList(item)}
+        onPickRecent={(item) => {
+          const list = getRecentPlays()
+          const next = list.some((x) => x.id === item.id) ? list : [item, ...list]
+          playFromList(item, next)
         }}
       />
       <DownloadGuide

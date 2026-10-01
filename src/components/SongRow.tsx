@@ -11,18 +11,22 @@ type Props = {
   item: MusicItem
   onClick: () => void
   index?: number
+  active?: boolean
 }
 
-export function SongRow({ item, onClick, index = 0 }: Props) {
+export function SongRow({ item, onClick, index = 0, active = false }: Props) {
   const dur = formatDuration(item.duration)
   return (
     <button
       type="button"
-      className="song-row song-row--name"
+      className={`song-row song-row--name${active ? ' is-playing' : ''}`}
       onClick={onClick}
       style={{ animationDelay: `${Math.min(index, 12) * 0.03}s` }}
     >
-      <div className="song-title">{item.title}</div>
+      <div className="song-title">
+        {active ? <span className="playing-dot" aria-hidden /> : null}
+        {item.title}
+      </div>
       {dur ? <span className="song-duration">{dur}</span> : null}
     </button>
   )

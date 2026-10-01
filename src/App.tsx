@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BottomBar } from './components/BottomBar'
 import { Dialogs } from './components/Dialogs'
+import { DownloadGuide } from './components/DownloadGuide'
 import { TopBar } from './components/TopBar'
+import {
+  clearPendingDownload,
+  isWeChat,
+  readPendingDownload,
+  saveTrackFile,
+  type PendingDownload,
+} from './lib/download'
 import { coverUrl, getNotification, getPlayMeta, getUpdate, postAccess } from './lib/api'
 import {
   getDismissedNotification,
@@ -22,6 +30,10 @@ export default function App() {
   const [queue, setQueue] = useState<MusicItem[]>([])
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
   const [notification, setNotification] = useState<NotificationInfo | null>(null)
+  const [pendingDl, setPendingDl] = useState<PendingDownload | null>(null)
+  const [dlGuideHidden, setDlGuideHidden] = useState(false)
+  const [dlSaving, setDlSaving] = useState(false)
+  const [dlError, setDlError] = useState('')
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [current, setCurrent] = useState<MusicItem | null>(null)
@@ -74,6 +86,17 @@ export default function App() {
     },
     [ensurePlay],
   )
+
+  useEffect(() => {
+    const syncDownload = () => {
+      setDlGuideHidden(false)
+      setDlError('')
+      setPendingDl(readPendingDownload())
+    }
+    syncDownload()
+    window.addEventListener('hashchange', syncDownload)
+    return () => window.removeEventListener('hashchange', syncDownload)
+  }, [])
 
   useEffect(() => {
     const audio = new Audio()
@@ -252,6 +275,33 @@ export default function App() {
             setDismissedNotification(`${notification.title}|${notification.create_time}`)
           }
           setNotification(null)
+        }}
+      />
+      <DownloadGuide
+        pending={dlGuideHidden ? null : pendingDl}
+        saving={dlSaving}
+        error={dlError}
+        onClose={() => {
+          if (isWeChat()) {
+            setDlGuideHidden(true)
+            return
+          }
+          clearPendingDownload()
+          setPendingDl(null)
+        }}
+        onSave={() => {
+          if (!pendingDl || dlSaving) return
+          setDlSaving(true)
+          setDlError('')
+          void saveTrackFile(pendingDl.url, pendingDl.filename)
+            .then(() => {
+              clearPendingDownload()
+              setPendingDl(null)
+            })
+            .catch((e: unknown) => {
+              setDlError(e instanceof Error ? e.message : '下载失败')
+            })
+            .finally(() => setDlSaving(false))
         }}
       />
     </div>

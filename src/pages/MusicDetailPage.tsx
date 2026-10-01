@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { coverUrl, getLyric, getPlayMeta, postDownload } from '../lib/api'
+import { requestDownload, trackExt, trackFilename } from '../lib/download'
 import { addRecentPlay, getSettings, isFavorite, toggleFavorite, upsertDownload } from '../lib/storage'
 import type { DownloadTask, LyricLine, MusicItem, QualityOption } from '../lib/types'
 import { DownloadSheet } from '../components/DownloadSheet'
@@ -105,9 +106,11 @@ export function MusicDetailPage({
       }
       upsertDownload(task)
       void postDownload(task)
-      window.open(meta.url, '_blank', 'noopener,noreferrer')
-      setMsg('已加入下载列表并打开链接')
+      const filename = trackFilename(music.title, music.artist, trackExt(option.id, meta.format))
       setSheetOpen(false)
+      setMsg('正在准备下载…')
+      const mode = await requestDownload(meta.url, filename)
+      setMsg(mode === 'started' ? `已开始下载 ${filename}` : '')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '获取下载地址失败')
     } finally {

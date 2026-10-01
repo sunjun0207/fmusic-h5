@@ -20,7 +20,7 @@ export function DownloadSheet({ open, defaultQuality, loading, onClose, onPick }
     <div className="overlay" onClick={onClose}>
       <div className="sheet" role="dialog" aria-label="选择音质" onClick={(e) => e.stopPropagation()}>
         <h3>选择下载音质</h3>
-        <p>H5 无法像 App 一样写入本地文件，将打开音频链接或记录到下载列表。</p>
+        <p>文件会保存为「歌名-歌手.mp3」。微信内需要点右上角，选择在浏览器中打开后再保存。</p>
         {QUALITY_OPTIONS.map((q) => (
           <button
             key={q.id}

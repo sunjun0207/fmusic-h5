@@ -259,14 +259,14 @@ export default function App() {
         <TopBar
           subtitle={
             tab === 'home'
-              ? '听喜欢的歌'
+              ? '把喜欢的歌，慢慢听完'
               : tab === 'search'
-                ? '酷我直连搜索'
+                ? '寻一句词，或一个名字'
                 : tab === 'favorite'
-                  ? '我的收藏'
+                  ? '收在心里的歌'
                   : tab === 'download'
-                    ? '本地下载记录'
-                    : '偏好与关于'
+                    ? '留在身边的旋律'
+                    : '一点偏好，与关于'
           }
         />
       ) : null}

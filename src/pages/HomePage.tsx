@@ -23,14 +23,18 @@ export function HomePage({ onOpenSearch, onOpenMusic, onOpenQueue, queue, curren
     <div>
       <section className="hero-card">
         <h1>聆听jun.sun</h1>
-        <p>搜歌、听歌、记下载。轻量网页听歌。</p>
-        <button
-          type="button"
-          className="btn primary"
-          style={{ marginTop: 18, position: 'relative', zIndex: 1 }}
-          onClick={onOpenSearch}
-        >
-          去搜一首
+        <p>有些歌，只适合在夜色安静下来的时候遇见。来这里寻一首，让歌词跟着旋律慢慢走近，把零碎的光阴，听成一段温柔而从容的停留。</p>
+        <button type="button" className="hero-search" onClick={onOpenSearch}>
+          <span className="hero-search-icon" aria-hidden>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span>
+            <strong>搜索歌曲</strong>
+            <em>输入歌名或歌手</em>
+          </span>
         </button>
       </section>
 
@@ -38,7 +42,12 @@ export function HomePage({ onOpenSearch, onOpenMusic, onOpenQueue, queue, curren
         <button type="button" className="queue-entry" onClick={onOpenQueue}>
           <span>
             <strong>当前播放</strong>
-            {current ? <em>{current.title}</em> : null}
+            {current ? (
+              <em>
+                {current.title}
+                {current.artist ? ` · ${current.artist}` : ''}
+              </em>
+            ) : null}
           </span>
           <span>{queue.length} 首</span>
         </button>
@@ -49,7 +58,7 @@ export function HomePage({ onOpenSearch, onOpenMusic, onOpenQueue, queue, curren
         <span>{recent.length ? `${recent.length} 首` : '还没有记录'}</span>
       </div>
       {recent.length === 0 ? (
-        <div className="empty">从搜索开始，点开歌曲即可播放</div>
+        <div className="empty">还没有听过的歌。先搜索一首，让旋律慢慢到来。</div>
       ) : (
         recent.map((item, i) => (
           <SongRow

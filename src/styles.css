@@ -209,11 +209,57 @@ img {
 
 .hero-card p {
   margin: 0;
-  opacity: 0.88;
-  line-height: 1.55;
+  opacity: 0.9;
+  line-height: 1.75;
   position: relative;
   z-index: 1;
-  max-width: 28ch;
+}
+
+.hero-search {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  text-align: left;
+  background: #f7fffd;
+  color: var(--ink);
+  box-shadow: 0 10px 24px rgba(11, 31, 36, 0.22);
+}
+
+.hero-search:active {
+  transform: scale(0.98);
+}
+
+.hero-search-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: white;
+  background: linear-gradient(145deg, var(--teal-glow), var(--teal-deep));
+}
+
+.hero-search strong {
+  display: block;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  color: var(--teal-deep);
+}
+
+.hero-search em {
+  display: block;
+  margin-top: 2px;
+  font-style: normal;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .section-title {
@@ -255,9 +301,17 @@ img {
   text-align: left;
 }
 
-.song-row--name .song-title {
+.song-row--name .song-main {
   flex: 1;
   min-width: 0;
+}
+
+.song-row--name .song-title {
+  min-width: 0;
+}
+
+.song-row--name .song-sub {
+  margin-top: 2px;
 }
 
 .song-duration {
@@ -346,6 +400,11 @@ img {
   border: 1px solid var(--line);
 }
 
+.queue-entry > span:first-child {
+  min-width: 0;
+  flex: 1;
+}
+
 .queue-entry strong {
   display: block;
   font-family: var(--font-display);
@@ -358,6 +417,9 @@ img {
   font-weight: 500;
   font-size: 0.82rem;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .queue-entry > span:last-child {
@@ -490,6 +552,17 @@ img {
 
 .setting-row:last-child {
   border-bottom: none;
+}
+
+.about-note-row {
+  align-items: flex-start;
+}
+
+.about-note {
+  margin-top: 6px;
+  font-size: 0.86rem;
+  line-height: 1.65;
+  color: var(--muted);
 }
 
 .setting-row select {
@@ -663,14 +736,16 @@ img {
   border-radius: var(--radius);
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid var(--line);
-  padding: 16px 12px;
+  padding: 72px 12px;
   scroll-behavior: smooth;
 }
 
 .lyric-line {
+  width: 100%;
   text-align: center;
   padding: 8px 6px;
   color: var(--muted);
+  cursor: pointer;
   transition: color 0.2s ease, transform 0.2s ease, font-size 0.2s ease;
   line-height: 1.45;
 }

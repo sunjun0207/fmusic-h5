@@ -62,10 +62,12 @@ export function SettingPage() {
             sunjun0207@163.com
           </a>
         </div>
-        <div className="setting-row">
-          <div>说明</div>
-          <div className="song-sub" style={{ maxWidth: '58%', textAlign: 'right' }}>
-            搜歌/歌词/播放直连酷我；版本与公告走自有 API
+        <div className="setting-row about-note-row">
+          <div>
+            <div>说明</div>
+            <div className="about-note">
+              这里是一处轻轻的听歌处。你可以寻一句歌词，或一个忽然想起的名字，让旋律在指尖慢慢展开。想再听一遍，就停在这一首；想一路听下去，就交给列表；也可以把顺序交给偶然。最近听过的歌会留下来，正在播放的名单也随时可以翻开。愿每一首都成为一段温柔的停留。
+            </div>
           </div>
         </div>
       </div>

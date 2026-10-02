@@ -23,9 +23,12 @@ export function SongRow({ item, onClick, index = 0, active = false }: Props) {
       onClick={onClick}
       style={{ animationDelay: `${Math.min(index, 12) * 0.03}s` }}
     >
-      <div className="song-title">
-        {active ? <span className="playing-dot" aria-hidden /> : null}
-        {item.title}
+      <div className="song-main">
+        <div className="song-title">
+          {active ? <span className="playing-dot" aria-hidden /> : null}
+          {item.title}
+        </div>
+        {item.artist ? <div className="song-sub">{item.artist}</div> : null}
       </div>
       {dur ? <span className="song-duration">{dur}</span> : null}
     </button>

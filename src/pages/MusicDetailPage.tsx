@@ -89,6 +89,9 @@ export function MusicDetailPage({
   const [msg, setMsg] = useState('')
   const [fav, setFav] = useState(() => isFavorite(music.id))
   const lyricRef = useRef<HTMLDivElement>(null)
+  const userSeekingRef = useRef(false)
+  const programmaticRef = useRef(false)
+  const scrollTimerRef = useRef(0)
   const settings = getSettings()
 
   useEffect(() => {
@@ -123,10 +126,61 @@ export function MusicDetailPage({
   }, [lyrics, currentTime])
 
   useEffect(() => {
-    if (activeIndex < 0 || !lyricRef.current) return
+    return () => window.clearTimeout(scrollTimerRef.current)
+  }, [])
+
+  useEffect(() => {
+    if (userSeekingRef.current || activeIndex < 0 || !lyricRef.current) return
     const el = lyricRef.current.querySelector(`[data-i="${activeIndex}"]`) as HTMLElement | null
-    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    if (!el) return
+    programmaticRef.current = true
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const timer = window.setTimeout(() => {
+      programmaticRef.current = false
+    }, 700)
+    return () => {
+      window.clearTimeout(timer)
+      programmaticRef.current = false
+    }
   }, [activeIndex])
+
+  const playAt = (time: number) => {
+    onSeek(Math.max(0, time))
+    if (!playing) onTogglePlay()
+  }
+
+  const onLyricScroll = () => {
+    if (programmaticRef.current || lyrics.length === 0) return
+    userSeekingRef.current = true
+    window.clearTimeout(scrollTimerRef.current)
+    scrollTimerRef.current = window.setTimeout(() => {
+      const root = lyricRef.current
+      if (!root) {
+        userSeekingRef.current = false
+        return
+      }
+      const mid = root.getBoundingClientRect().top + root.clientHeight / 2
+      let best = -1
+      let bestDist = Number.POSITIVE_INFINITY
+      root.querySelectorAll<HTMLElement>('[data-i]').forEach((el) => {
+        const rect = el.getBoundingClientRect()
+        const dist = Math.abs(rect.top + rect.height / 2 - mid)
+        if (dist < bestDist) {
+          bestDist = dist
+          best = Number(el.dataset.i)
+        }
+      })
+      const line = best >= 0 ? lyrics[best] : undefined
+      if (line && Math.abs(line.time - currentTime) >= 0.35) {
+        playAt(line.time)
+        window.setTimeout(() => {
+          userSeekingRef.current = false
+        }, 450)
+        return
+      }
+      userSeekingRef.current = false
+    }, 160)
+  }
 
   const onPickQuality = async (option: QualityOption) => {
     setDlLoading(true)
@@ -281,18 +335,20 @@ export function MusicDetailPage({
 
       {msg ? <div className="empty" style={{ padding: 8 }}>{msg}</div> : null}
 
-      <div className="lyric-panel" ref={lyricRef}>
+      <div className="lyric-panel" ref={lyricRef} onScroll={onLyricScroll}>
         {lyrics.length === 0 ? (
           <div className="empty">暂无歌词</div>
         ) : (
           lyrics.map((line, i) => (
-            <div
+            <button
               key={`${line.time}-${i}`}
+              type="button"
               data-i={i}
               className={`lyric-line${i === activeIndex ? ' active' : ''}`}
+              onClick={() => playAt(line.time)}
             >
               {line.lineLyric}
-            </div>
+            </button>
           ))
         )}
       </div>

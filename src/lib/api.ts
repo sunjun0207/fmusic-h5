@@ -78,14 +78,32 @@ export function coverUrl(path?: string): string {
   return `/proxy/kw-img/star/albumcover/${cleaned}`
 }
 
+const KUWO_AUDIO_HOST = /^kw-[a-z0-9-]+\.kuwo\.cn$/i
+
+/**
+ * 播放地址常为 http://kw-lv.kuwo.cn 等。这些 CDN 提供 HTTPS，
+ * 直接把协议换成 https，避免 HTTPS 页面的混合内容，也避免反代返回网页导致无法播放。
+ */
 function rewriteAudioUrl(url: string): string {
-  if (url.startsWith('http://kw-er.kuwo.cn')) {
-    return url.replace('http://kw-er.kuwo.cn', '/proxy/kw-cdn')
+  try {
+    const parsed = new URL(url)
+    if (!KUWO_AUDIO_HOST.test(parsed.hostname)) return url
+    if (parsed.protocol === 'https:') return url
+    return `https://${url.slice('http://'.length)}`
+  } catch {
+    return url
   }
-  if (url.startsWith('https://kw-er.kuwo.cn')) {
-    return url.replace('https://kw-er.kuwo.cn', '/proxy/kw-cdn')
+}
+
+/** 下载需要同源拉取文件，把酷我音频地址改到本站反代。 */
+export function toProxyAudioUrl(url: string): string {
+  try {
+    const parsed = new URL(url)
+    if (!KUWO_AUDIO_HOST.test(parsed.hostname)) return url
+    return `/proxy/kw-audio/${parsed.hostname}${parsed.pathname}${parsed.search}`
+  } catch {
+    return url
   }
-  return url
 }
 
 export type SearchPageResult = {

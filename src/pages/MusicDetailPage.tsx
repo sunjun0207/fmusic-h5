@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { coverUrl, getLyric, getPlayMeta, postDownload } from '../lib/api'
+import { coverUrl, getLyric, getPlayMeta, postDownload, toProxyAudioUrl } from '../lib/api'
 import { requestDownload, trackExt, trackFilename } from '../lib/download'
 import { PLAY_MODE_LABEL } from '../lib/playback'
 import { getSettings, isFavorite, toggleFavorite, upsertDownload } from '../lib/storage'
@@ -187,13 +187,14 @@ export function MusicDetailPage({
     setMsg('')
     try {
       const meta = await getPlayMeta(music.id, option.br)
+      const fileUrl = toProxyAudioUrl(meta.url)
       const task: DownloadTask = {
         id: `${music.id}-${option.id}-${Date.now()}`,
         mid: music.id,
         title: music.title,
         artist: music.artist,
         quality: option.id,
-        url: meta.url,
+        url: fileUrl,
         status: 'ready',
         createdAt: Date.now(),
         image: music.image,
@@ -203,7 +204,7 @@ export function MusicDetailPage({
       const filename = trackFilename(music.title, music.artist, trackExt(option.id, meta.format))
       setSheetOpen(false)
       setMsg('正在准备下载…')
-      const mode = await requestDownload(meta.url, filename)
+      const mode = await requestDownload(fileUrl, filename)
       setMsg(mode === 'started' ? `已开始下载 ${filename}` : '')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '获取下载地址失败')

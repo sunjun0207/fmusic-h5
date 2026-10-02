@@ -74,3 +74,23 @@ location /proxy/kw-cdn/ {
     proxy_request_buffering off;
     proxy_read_timeout 300s;
 }
+
+# 下载走同源反代。播放已直接使用 CDN 的 HTTPS，不依赖这里。
+# 必须把路径写进 proxy_pass：带变量时 rewrite 不会自动替换上游 URI。
+location ~* ^/proxy/kw-audio/(?<audio_host>kw-[a-z0-9-]+\.kuwo\.cn)/ {
+    resolver 223.5.5.5 119.29.29.29 valid=300s ipv6=off;
+    resolver_timeout 5s;
+    set $audio_backend $audio_host;
+    rewrite ^/proxy/kw-audio/[^/]+(/.*)$ $1 break;
+    proxy_pass http://$audio_backend$uri$is_args$args;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host $audio_host;
+    proxy_set_header Cookie "";
+    proxy_set_header Referer "";
+    proxy_set_header Accept-Encoding "";
+    proxy_hide_header Content-Disposition;
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_read_timeout 300s;
+}

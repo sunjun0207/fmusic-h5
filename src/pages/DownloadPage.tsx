@@ -17,7 +17,7 @@ export function DownloadPage() {
     try {
       const filename = trackFilename(task.title, task.artist, trackExt(task.quality))
       const mode = await requestDownload(task.url, filename)
-      if (mode === 'started') {
+      if (mode.mode === 'started') {
         upsertDownload({ ...task, status: 'opened' })
         refresh()
       }

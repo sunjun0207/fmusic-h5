@@ -94,3 +94,10 @@ location ~* ^/proxy/kw-audio/(?<audio_host>kw-[a-z0-9-]+\.kuwo\.cn)/ {
     proxy_request_buffering off;
     proxy_read_timeout 300s;
 }
+
+# 未单独配置的 /proxy/* 不要回落到 index.html，否则会把网页存成歌曲。
+# nginx 按最长前缀匹配，/proxy/ 不会挡住 /proxy/api/ 等更长的前缀。
+location /proxy/ {
+    default_type text/plain;
+    return 404;
+}

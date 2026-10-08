@@ -32,18 +32,6 @@ export function SettingPage() {
             ))}
           </select>
         </div>
-        <div className="setting-row">
-          <div>
-            <div>公告提醒</div>
-            <div className="song-sub">本地开关，关闭后不再弹出公告</div>
-          </div>
-          <button
-            type="button"
-            className={`toggle${settings.showNotification ? ' on' : ''}`}
-            aria-pressed={settings.showNotification}
-            onClick={() => patch({ showNotification: !settings.showNotification })}
-          />
-        </div>
       </div>
 
       <div className="section-title">关于</div>

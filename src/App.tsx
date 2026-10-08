@@ -11,18 +11,16 @@ import {
   saveTrackFile,
   type PendingDownload,
 } from './lib/download'
-import { coverUrl, getNotification, getPlayMeta, getUpdate, postAccess } from './lib/api'
+import { coverUrl, getPlayMeta, getUpdate, postAccess } from './lib/api'
 import { nextPlayMode, resolveAdvance } from './lib/playback'
 import {
   addRecentPlay,
-  getDismissedNotification,
   getPlayMode,
   getRecentPlays,
   getSettings,
   savePlayMode,
-  setDismissedNotification,
 } from './lib/storage'
-import type { MusicItem, NotificationInfo, PlayMode, TabId, UpdateInfo } from './lib/types'
+import type { MusicItem, PlayMode, TabId, UpdateInfo } from './lib/types'
 import { DownloadPage } from './pages/DownloadPage'
 import { FavoritePage } from './pages/FavoritePage'
 import { HomePage } from './pages/HomePage'
@@ -35,7 +33,6 @@ export default function App() {
   const [detail, setDetail] = useState<MusicItem | null>(null)
   const [queue, setQueue] = useState<MusicItem[]>([])
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
-  const [notification, setNotification] = useState<NotificationInfo | null>(null)
   const [pendingDl, setPendingDl] = useState<PendingDownload | null>(null)
   const [dlGuideHidden, setDlGuideHidden] = useState(false)
   const [dlSaving, setDlSaving] = useState(false)
@@ -210,14 +207,9 @@ export default function App() {
   useEffect(() => {
     void (async () => {
       void postAccess()
-      const [u, n] = await Promise.all([getUpdate(), getNotification()])
+      const u = await getUpdate()
       if (u && u.version && u.version !== '1.0.10') {
         setUpdate(u)
-      }
-      const settings = getSettings()
-      if (n && settings.showNotification) {
-        const key = `${n.title}|${n.create_time}`
-        if (getDismissedNotification() !== key) setNotification(n)
       }
     })()
   }, [])
@@ -362,14 +354,9 @@ export default function App() {
 
       <Dialogs
         update={update}
-        notification={notification}
+        notification={null}
         onCloseUpdate={() => setUpdate(null)}
-        onCloseNotification={(forever) => {
-          if (forever && notification) {
-            setDismissedNotification(`${notification.title}|${notification.create_time}`)
-          }
-          setNotification(null)
-        }}
+        onCloseNotification={() => {}}
       />
       <PlayQueueSheet
         open={queueOpen}

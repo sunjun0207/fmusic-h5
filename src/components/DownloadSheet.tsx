@@ -1,3 +1,4 @@
+import { catalogSize } from '../lib/download'
 import type { QualityOption } from '../lib/types'
 
 export const QUALITY_OPTIONS: QualityOption[] = [
@@ -9,12 +10,13 @@ export const QUALITY_OPTIONS: QualityOption[] = [
 type Props = {
   open: boolean
   defaultQuality: string
+  fileInfo?: string
   loading?: boolean
   onClose: () => void
   onPick: (option: QualityOption) => void
 }
 
-export function DownloadSheet({ open, defaultQuality, loading, onClose, onPick }: Props) {
+export function DownloadSheet({ open, defaultQuality, fileInfo, loading, onClose, onPick }: Props) {
   if (!open) return null
   return (
     <div className="overlay" onClick={onClose}>
@@ -30,7 +32,11 @@ export function DownloadSheet({ open, defaultQuality, loading, onClose, onPick }
             onClick={() => onPick(q)}
           >
             <span>{q.label}</span>
-            <span className="badge">{q.id === defaultQuality ? '默认' : q.br}</span>
+            <span className="badge">
+              {[q.id === defaultQuality ? '默认' : '', catalogSize(fileInfo, q.id)]
+                .filter(Boolean)
+                .join(' · ') || q.br}
+            </span>
           </button>
         ))}
         <button type="button" className="btn ghost" style={{ width: '100%' }} onClick={onClose}>

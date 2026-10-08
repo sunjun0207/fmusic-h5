@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { coverUrl, getLyric, getPlayMeta, postDownload, toProxyAudioUrl } from '../lib/api'
-import { requestDownload, trackExt, trackFilename } from '../lib/download'
+import { formatBytes, requestDownload, trackExt, trackFilename } from '../lib/download'
 import { PLAY_MODE_LABEL } from '../lib/playback'
 import { getSettings, isFavorite, toggleFavorite, upsertDownload } from '../lib/storage'
 import type { DownloadTask, LyricLine, MusicItem, PlayMode, QualityOption } from '../lib/types'
@@ -205,7 +205,7 @@ export function MusicDetailPage({
       setSheetOpen(false)
       setMsg('正在准备下载…')
       const mode = await requestDownload(fileUrl, filename)
-      setMsg(mode === 'started' ? `已开始下载 ${filename}` : '')
+      setMsg(mode.mode === 'started' ? `已开始下载 ${filename}（${formatBytes(mode.bytes)}）` : '')
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '获取下载地址失败')
     } finally {
@@ -357,6 +357,7 @@ export function MusicDetailPage({
       <DownloadSheet
         open={sheetOpen}
         defaultQuality={settings.quality}
+        fileInfo={music.fileInfo}
         loading={dlLoading}
         onClose={() => setSheetOpen(false)}
         onPick={(q) => void onPickQuality(q)}

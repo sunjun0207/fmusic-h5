@@ -6,11 +6,12 @@ type Props = {
   showBack?: boolean
   onBack?: () => void
   right?: ReactNode
+  plain?: boolean
 }
 
-export function TopBar({ title = '聆听jun.sun', subtitle, showBack, onBack, right }: Props) {
+export function TopBar({ title = '聆听jun.sun', subtitle, showBack, onBack, right, plain }: Props) {
   return (
-    <header className="top-bar">
+    <header className={`top-bar${plain ? ' is-plain' : ''}`}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
         {showBack && (
           <button type="button" className="icon-btn" onClick={onBack} aria-label="返回">
@@ -19,12 +20,14 @@ export function TopBar({ title = '聆听jun.sun', subtitle, showBack, onBack, ri
             </svg>
           </button>
         )}
-        <div style={{ minWidth: 0 }}>
-          <div className="brand">{title}</div>
-          {subtitle ? <div className="brand-sub">{subtitle}</div> : null}
-        </div>
+        {!plain ? (
+          <div style={{ minWidth: 0 }}>
+            <div className="brand">{title}</div>
+            {subtitle ? <div className="brand-sub">{subtitle}</div> : null}
+          </div>
+        ) : null}
       </div>
-      {right}
+      {!plain ? right : null}
     </header>
   )
 }

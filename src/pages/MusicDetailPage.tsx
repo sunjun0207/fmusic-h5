@@ -217,31 +217,7 @@ export function MusicDetailPage({
 
   return (
     <div className="detail-page">
-      <TopBar
-        title={music.title}
-        subtitle={music.artist}
-        showBack
-        onBack={onBack}
-        right={
-          <div className="detail-actions">
-            <button
-              type="button"
-              className={`icon-btn fav-btn${fav ? ' on' : ''}`}
-              onClick={() => setFav(toggleFavorite(music))}
-              aria-label={fav ? '取消收藏' : '收藏'}
-            >
-              {fav ? '♥' : '♡'}
-            </button>
-            <button type="button" className="icon-btn" onClick={() => setSheetOpen(true)} aria-label="下载">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                <path d="M12 4v11" strokeLinecap="round" />
-                <path d="m7.5 11.5 4.5 4.5 4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M5 19h14" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-        }
-      />
+      <TopBar showBack onBack={onBack} plain />
 
       <div className="detail-cover-wrap">
         {src ? (
@@ -251,13 +227,39 @@ export function MusicDetailPage({
         )}
       </div>
 
-      <div className="detail-info">
-        <h2>{music.title}</h2>
-        <p>
-          {music.artist}
-          {music.album ? ` · ${music.album}` : ''}
-          {music.duration > 0 ? ` · ${fmt(music.duration)}` : ''}
-        </p>
+      <div className="detail-meta">
+        <div className="detail-info">
+          <h2>{music.title}</h2>
+          <p>
+            {music.artist}
+            {music.album ? ` · ${music.album}` : ''}
+            {music.duration > 0 ? ` · ${fmt(music.duration)}` : ''}
+          </p>
+        </div>
+        <div className="detail-actions">
+          <button
+            type="button"
+            className={`action-chip${fav ? ' on' : ''}`}
+            onClick={() => setFav(toggleFavorite(music))}
+            aria-label={fav ? '取消收藏' : '收藏'}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill={fav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8">
+              <path
+                d="M12 20.2s-6.6-4.2-6.6-9C5.4 8.4 7.3 6.6 9.7 6.6c1.3 0 2.5.6 3.3 1.7.8-1.1 2-1.7 3.3-1.7 2.4 0 4.3 1.8 4.3 4.6 0 4.8-6.6 9-6.6 9z"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span>{fav ? '已收藏' : '收藏'}</span>
+          </button>
+          <button type="button" className="action-chip download" onClick={() => setSheetOpen(true)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M12 4v11" strokeLinecap="round" />
+              <path d="m7.5 11.5 4.5 4.5 4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M5 19h14" strokeLinecap="round" />
+            </svg>
+            <span>下载</span>
+          </button>
+        </div>
       </div>
 
       <div>
@@ -277,31 +279,35 @@ export function MusicDetailPage({
       </div>
 
       <div className="player-block">
-        <p className="play-mode-label" aria-live="polite">
-          {PLAY_MODE_LABEL[playMode]}
-        </p>
-        <div className="player-controls">
+        <div className="player-utils">
           <button
             type="button"
-            className="ctrl-btn ctrl-side"
+            className="util-btn"
             onClick={onCycleMode}
-            aria-label={`${PLAY_MODE_LABEL[playMode]}，点击切换`}
+            aria-label={`循环模式：${PLAY_MODE_LABEL[playMode]}，点击切换`}
           >
             <PlayModeIcon mode={playMode} />
+            <span>{PLAY_MODE_LABEL[playMode]}</span>
           </button>
-          <div className="player-main">
-            <button
-              type="button"
-              className="ctrl-btn"
-              onClick={onPrev}
-              disabled={!canPrev}
-              aria-label="上一首"
-            >
+          <button type="button" className="util-btn" onClick={onOpenQueue}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M9 7h11M9 12h11M9 17h11" strokeLinecap="round" />
+              <path d="M4 7h.01M4 12h.01M4 17h.01" strokeLinecap="round" />
+            </svg>
+            <span>播放列表</span>
+          </button>
+        </div>
+        <div className="player-main">
+          <button type="button" className="transport" onClick={onPrev} disabled={!canPrev}>
+            <span className="ctrl-face">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 6h2v12H6V6Zm3.5 6 8.5 6V6l-8.5 6Z" />
               </svg>
-            </button>
-            <button type="button" className="play-btn" onClick={onTogglePlay} aria-label={playing ? '暂停' : '播放'}>
+            </span>
+            <span className="ctrl-label">上一首</span>
+          </button>
+          <button type="button" className="transport transport-play" onClick={onTogglePlay}>
+            <span className="ctrl-face">
               {playing ? (
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor">
                   <rect x="6" y="5" width="4" height="14" rx="1" />
@@ -312,24 +318,16 @@ export function MusicDetailPage({
                   <path d="M8 5.5v13l11-6.5-11-6.5Z" />
                 </svg>
               )}
-            </button>
-            <button
-              type="button"
-              className="ctrl-btn"
-              onClick={onNext}
-              disabled={!canNext}
-              aria-label="下一首"
-            >
+            </span>
+            <span className="ctrl-label">{playing ? '暂停' : '播放'}</span>
+          </button>
+          <button type="button" className="transport" onClick={onNext} disabled={!canNext}>
+            <span className="ctrl-face">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M16 6h2v12h-2V6ZM6 18l8.5-6L6 6v12Z" />
               </svg>
-            </button>
-          </div>
-          <button type="button" className="ctrl-btn ctrl-side" onClick={onOpenQueue} aria-label="播放列表">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M9 7h11M9 12h11M9 17h11" strokeLinecap="round" />
-              <path d="M4 7h.01M4 12h.01M4 17h.01" strokeLinecap="round" />
-            </svg>
+            </span>
+            <span className="ctrl-label">下一首</span>
           </button>
         </div>
       </div>

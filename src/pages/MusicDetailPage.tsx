@@ -89,6 +89,7 @@ export function MusicDetailPage({
   const [msg, setMsg] = useState('')
   const [fav, setFav] = useState(() => isFavorite(music.id))
   const lyricRef = useRef<HTMLDivElement>(null)
+  const activeBaseRef = useRef<HTMLSpanElement>(null)
   const userSeekingRef = useRef(false)
   const programmaticRef = useRef(false)
   const scrollTimerRef = useRef(0)
@@ -117,13 +118,35 @@ export function MusicDetailPage({
 
   const activeIndex = useMemo(() => {
     if (!lyrics.length) return -1
-    let idx = 0
+    let idx = -1
     for (let i = 0; i < lyrics.length; i++) {
       if (lyrics[i]!.time <= currentTime) idx = i
       else break
     }
     return idx
   }, [lyrics, currentTime])
+
+  useEffect(() => {
+    let frame = 0
+    const originTime = currentTime
+    const originAt = performance.now()
+    const paint = (time: number) => {
+      const el = activeBaseRef.current
+      const line = activeIndex >= 0 ? lyrics[activeIndex] : undefined
+      if (!el || !line) return
+      const next = lyrics[activeIndex + 1]
+      const end = next ? next.time : duration > line.time ? duration : line.time + 6
+      const span = Math.max(0.35, end - line.time)
+      const progress = Math.min(1, Math.max(0, (time - line.time) / span))
+      el.style.setProperty('--lyric-p', `${(progress * 100).toFixed(2)}%`)
+    }
+    const step = (now: number) => {
+      paint(playing ? originTime + (now - originAt) / 1000 : originTime)
+      if (playing) frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+  }, [playing, currentTime, activeIndex, lyrics, duration])
 
   useEffect(() => {
     return () => window.clearTimeout(scrollTimerRef.current)
@@ -343,10 +366,12 @@ export function MusicDetailPage({
               key={`${line.time}-${i}`}
               type="button"
               data-i={i}
-              className={`lyric-line${i === activeIndex ? ' active' : ''}`}
+              className={`lyric-line${i === activeIndex ? ' active' : ''}${i < activeIndex ? ' past' : ''}`}
               onClick={() => playAt(line.time)}
             >
-              {line.lineLyric}
+              <span className="lyric-base" ref={i === activeIndex ? activeBaseRef : undefined}>
+                {line.lineLyric}
+              </span>
             </button>
           ))
         )}

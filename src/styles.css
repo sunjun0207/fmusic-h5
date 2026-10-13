@@ -792,15 +792,39 @@ img {
   padding: 8px 6px;
   color: var(--muted);
   cursor: pointer;
-  transition: color 0.2s ease, transform 0.2s ease, font-size 0.2s ease;
+  transition: transform 0.2s ease, font-size 0.2s ease;
   line-height: 1.45;
 }
 
+.lyric-base {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+}
+
+.lyric-line.past {
+  color: #3e666c;
+  font-weight: 600;
+}
+
 .lyric-line.active {
-  color: var(--ink);
   font-weight: 700;
   font-size: 1.05rem;
   transform: scale(1.02);
+}
+
+.lyric-line.active .lyric-base {
+  background-image: linear-gradient(
+    90deg,
+    var(--teal-deep) 0,
+    var(--teal-deep) var(--lyric-p, 0%),
+    #c5d6d3 var(--lyric-p, 0%),
+    #c5d6d3 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .mini-player {

@@ -65,6 +65,7 @@ export default function App() {
   const mvMusicRef = useRef<MusicItem | null>(null)
   const resumeAudioRef = useRef(false)
   const playInFlightRef = useRef(false)
+  const heldAudioRef = useRef<{ src: string; time: number } | null>(null)
 
   useEffect(() => {
     queueRef.current = queue
@@ -120,22 +121,65 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [mvError])
 
+  const holdSong = useCallback(() => {
+    if (!mvActiveRef.current) return
+    const audio = audioRef.current
+    if (!audio) return
+    const src = audio.getAttribute('src')
+    if (src && !heldAudioRef.current) {
+      heldAudioRef.current = {
+        src: audio.src,
+        time: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+      }
+    }
+    audio.pause()
+    audio.muted = true
+    audio.volume = 0
+    if (src) {
+      audio.removeAttribute('src')
+      audio.load()
+    }
+  }, [])
+
+  const releaseSong = useCallback((resume: boolean) => {
+    const audio = audioRef.current
+    const held = heldAudioRef.current
+    heldAudioRef.current = null
+    if (!audio) return
+    audio.muted = false
+    audio.volume = 1
+    if (held?.src) {
+      audio.src = held.src
+      const applyTime = () => {
+        if (held.time > 0) {
+          try {
+            audio.currentTime = held.time
+          } catch {
+            /* metadata not ready */
+          }
+        }
+      }
+      if (audio.readyState >= 1) applyTime()
+      else audio.addEventListener('loadedmetadata', applyTime, { once: true })
+    }
+    if (resume) void audio.play().catch(() => setPlaying(false))
+  }, [])
+
   const closeMv = useCallback((resume = true) => {
     mvToken.current += 1
     mvActiveRef.current = false
     setMvMusic(null)
     setMvUrl('')
     setMvLoading(false)
-    if (resume && resumeAudioRef.current) {
-      void audioRef.current?.play().catch(() => setPlaying(false))
-    }
+    const shouldResume = resume && resumeAudioRef.current
     resumeAudioRef.current = false
-  }, [])
+    releaseSong(shouldResume)
+  }, [releaseSong])
 
   const ensurePlay = useCallback(async (music: MusicItem, br?: string) => {
     const audio = audioRef.current
     if (!audio) return
-    if (mvActiveRef.current && mvMusicRef.current?.id !== music.id) closeMv(false)
+    if (mvActiveRef.current) return
     const token = ++playToken.current
     playInFlightRef.current = true
     setCurrent(music)
@@ -145,19 +189,21 @@ export default function App() {
     try {
       const quality = br || getSettings().quality
       const meta = await getPlayMeta(music.id, quality)
-      if (token !== playToken.current) return
+      if (token !== playToken.current || mvActiveRef.current) return
       if (audio.getAttribute('src') !== meta.url) {
         audio.src = meta.url
       }
-      if (mvActiveRef.current) return
+      audio.muted = false
+      audio.volume = 1
       await audio.play()
+      if (mvActiveRef.current) holdSong()
     } catch (e) {
       console.error(e)
       setPlaying(false)
     } finally {
       if (token === playToken.current) playInFlightRef.current = false
     }
-  }, [closeMv])
+  }, [holdSong])
 
   const playRelative = useCallback(
     (delta: number) => {
@@ -225,9 +271,10 @@ export default function App() {
     }
     const token = ++mvToken.current
     const audio = audioRef.current
-    resumeAudioRef.current = Boolean(audio && !audio.paused) || playInFlightRef.current
+    resumeAudioRef.current =
+      Boolean(audio && audio.getAttribute('src') && !audio.paused) || playInFlightRef.current
     mvActiveRef.current = true
-    audio?.pause()
+    holdSong()
     setMvError('')
     setMvMusic(music)
     setMvUrl('')
@@ -235,7 +282,7 @@ export default function App() {
     try {
       const url = await getMvUrl(music.id)
       if (token !== mvToken.current) return
-      audioRef.current?.pause()
+      holdSong()
       setMvUrl(url)
     } catch (error) {
       if (token !== mvToken.current) return
@@ -253,14 +300,13 @@ export default function App() {
         setNoMvStamp({ id: music.id, token: Date.now() })
         setMvVersion((version) => version + 1)
       }
-      if (resumeAudioRef.current) {
-        resumeAudioRef.current = false
-        void audioRef.current?.play().catch(() => setPlaying(false))
-      }
+      const shouldResume = resumeAudioRef.current
+      resumeAudioRef.current = false
+      releaseSong(shouldResume)
     } finally {
       if (token === mvToken.current) setMvLoading(false)
     }
-  }, [])
+  }, [holdSong, releaseSong])
 
   useEffect(() => {
     const syncDownload = () => {
@@ -282,10 +328,13 @@ export default function App() {
     const onMeta = () => setDuration(audio.duration || 0)
     const onPlay = () => {
       if (mvActiveRef.current) {
-        audio.pause()
+        holdSong()
         return
       }
       setPlaying(true)
+    }
+    const onPlaying = () => {
+      if (mvActiveRef.current) holdSong()
     }
     const onPause = () => setPlaying(false)
     const onEnded = () => {
@@ -319,6 +368,7 @@ export default function App() {
     audio.addEventListener('timeupdate', onTime)
     audio.addEventListener('loadedmetadata', onMeta)
     audio.addEventListener('play', onPlay)
+    audio.addEventListener('playing', onPlaying)
     audio.addEventListener('pause', onPause)
     audio.addEventListener('ended', onEnded)
 
@@ -327,11 +377,12 @@ export default function App() {
       audio.removeEventListener('timeupdate', onTime)
       audio.removeEventListener('loadedmetadata', onMeta)
       audio.removeEventListener('play', onPlay)
+      audio.removeEventListener('playing', onPlaying)
       audio.removeEventListener('pause', onPause)
       audio.removeEventListener('ended', onEnded)
       audioRef.current = null
     }
-  }, [ensurePlay])
+  }, [ensurePlay, holdSong])
 
   useEffect(() => {
     void (async () => {
@@ -343,10 +394,16 @@ export default function App() {
     })()
   }, [])
 
+  useEffect(() => {
+    if (!mvMusic) return
+    holdSong()
+    const timer = window.setInterval(() => holdSong(), 400)
+    return () => window.clearInterval(timer)
+  }, [mvMusic, holdSong])
+
   const togglePlay = useCallback(() => {
     const audio = audioRef.current
-    if (!audio) return
-    if (!current) return
+    if (!audio || !current || mvActiveRef.current) return
     if (audio.paused) {
       void audio.play().catch(() => {
         void ensurePlay(current)

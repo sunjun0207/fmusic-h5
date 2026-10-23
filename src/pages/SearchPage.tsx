@@ -11,11 +11,13 @@ import type { MusicItem } from '../lib/types'
 
 type Props = {
   onOpenMusic: (item: MusicItem, queue?: MusicItem[]) => void
+  onPlayMv: (item: MusicItem) => void
+  noMvStamp?: { id: string; token: number } | null
 }
 
 const PAGE_SIZE = 20
 
-export function SearchPage({ onOpenMusic }: Props) {
+export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
   const [keyword, setKeyword] = useState('')
   const [history, setHistory] = useState<string[]>(() => getSearchHistory())
   const [suggests, setSuggests] = useState<string[]>([])
@@ -28,24 +30,41 @@ export function SearchPage({ onOpenMusic }: Props) {
   const [error, setError] = useState('')
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const loadingMoreRef = useRef(false)
+  const suggestSeq = useRef(0)
 
+  const draft = keyword.trim()
+  const drafting = draft.length > 0 && draft !== query
   const hasMore =
+    !drafting &&
     results.length > 0 &&
     (total > results.length || (total <= 0 && results.length % PAGE_SIZE === 0))
 
   useEffect(() => {
+    if (!noMvStamp) return
+    setResults((list) => list.map((item) => (item.id === noMvStamp.id ? { ...item, hasMv: false } : item)))
+  }, [noMvStamp])
+
+  useEffect(() => {
     const q = keyword.trim()
-    if (q.length < 1) {
+    if (q.length < 1 || q === query) {
+      suggestSeq.current += 1
       setSuggests([])
       return
     }
-    const t = window.setTimeout(() => {
+    const seq = ++suggestSeq.current
+    const timer = window.setTimeout(() => {
       searchKey(q)
-        .then(setSuggests)
-        .catch(() => setSuggests([]))
-    }, 280)
-    return () => window.clearTimeout(t)
-  }, [keyword])
+        .then((list) => {
+          if (seq !== suggestSeq.current) return
+          setSuggests(list)
+        })
+        .catch(() => {
+          if (seq !== suggestSeq.current) return
+          setSuggests([])
+        })
+    }, 160)
+    return () => window.clearTimeout(timer)
+  }, [keyword, query])
 
   const runSearch = async (raw: string) => {
     const q = raw.trim()
@@ -138,16 +157,30 @@ export function SearchPage({ onOpenMusic }: Props) {
         </svg>
         <input
           value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
+          onChange={(e) => {
+            const next = e.target.value
+            setKeyword(next)
+            if (!next.trim()) {
+              suggestSeq.current += 1
+              setSuggests([])
+              setResults([])
+              setQuery('')
+              setTotal(0)
+              setError('')
+            }
+          }}
           placeholder="搜索歌曲 / 歌手"
           enterKeyHint="search"
           autoCapitalize="off"
           autoCorrect="off"
+          aria-autocomplete="list"
+          aria-expanded={drafting && suggests.length > 0}
         />
         {keyword ? (
           <button
             type="button"
             onClick={() => {
+              suggestSeq.current += 1
               setKeyword('')
               setSuggests([])
               setResults([])
@@ -161,17 +194,18 @@ export function SearchPage({ onOpenMusic }: Props) {
         ) : null}
       </form>
 
-      {suggests.length > 0 && !loading && results.length === 0 ? (
-        <div className="suggest-list">
-          {suggests.slice(0, 10).map((s) => (
-            <button key={s} type="button" className="suggest-item" onClick={() => void runSearch(s)}>
+      {drafting && suggests.length > 0 ? (
+        <div className="suggest-list" role="listbox">
+          {suggests.slice(0, 8).map((s) => (
+            <button key={s} type="button" className="suggest-item" role="option" onClick={() => void runSearch(s)}>
               {s}
             </button>
           ))}
         </div>
       ) : null}
+      {drafting && suggests.length === 0 ? <div className="suggest-pending">正在联想…</div> : null}
 
-      {!results.length && !loading ? (
+      {!drafting && !results.length && !loading ? (
         <>
           <div className="section-title">
             搜索历史
@@ -209,19 +243,22 @@ export function SearchPage({ onOpenMusic }: Props) {
         </>
       ) : null}
 
-      {loading ? <div className="loading">搜索中…</div> : null}
-      {error && !loading ? <div className="empty">{error}</div> : null}
+      {!drafting && loading ? <div className="loading">搜索中…</div> : null}
+      {!drafting && error && !loading ? <div className="empty">{error}</div> : null}
 
-      {results.map((item, i) => (
-        <SongRow
-          key={`${item.id}-${i}`}
-          item={item}
-          index={i}
-          onClick={() => onOpenMusic(item, results)}
-        />
-      ))}
+      {!drafting
+        ? results.map((item, i) => (
+            <SongRow
+              key={`${item.id}-${i}`}
+              item={item}
+              index={i}
+              onClick={() => onOpenMusic(item, results)}
+              onPlayMv={onPlayMv}
+            />
+          ))
+        : null}
 
-      {results.length > 0 ? (
+      {!drafting && results.length > 0 ? (
         <div ref={sentinelRef} className="list-sentinel">
           {loadingMore ? '加载更多…' : hasMore ? '上拉加载更多' : '没有更多了'}
         </div>

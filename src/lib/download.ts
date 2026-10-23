@@ -12,6 +12,7 @@ export function isWeChat(): boolean {
 export function trackExt(quality: string, format?: string): string {
   const hint = `${format || ''} ${quality}`.toLowerCase()
   if (hint.includes('flac')) return 'flac'
+  if (quality.trim().toLowerCase() === 'mv' || hint.includes('mp4')) return 'mp4'
   return 'mp3'
 }
 
@@ -85,15 +86,17 @@ export function clearPendingDownload() {
   history.replaceState(null, '', `${location.pathname}${location.search}`)
 }
 
-function isAudioPayload(bytes: Uint8Array, contentType: string): boolean {
+function isMediaPayload(bytes: Uint8Array, contentType: string): boolean {
   const ct = contentType.toLowerCase()
   if (ct.includes('text/html') || ct.includes('application/json') || ct.includes('text/plain')) return false
+  if (ct.startsWith('audio/') || ct.startsWith('video/')) return true
   if (bytes.length < 4) return false
   const mark = String.fromCharCode(bytes[0]!, bytes[1]!, bytes[2]!, bytes[3]!)
   if (mark.startsWith('ID3') || mark === 'fLaC' || mark === 'OggS' || mark === 'RIFF') return true
   // MP3 帧同步
   if (bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0) return true
-  return ct.startsWith('audio/')
+  if (bytes.length >= 8 && String.fromCharCode(bytes[4]!, bytes[5]!, bytes[6]!, bytes[7]!) === 'ftyp') return true
+  return false
 }
 
 export async function saveTrackFile(url: string, filename: string): Promise<number> {
@@ -102,8 +105,8 @@ export async function saveTrackFile(url: string, filename: string): Promise<numb
   if (!res.ok) throw new Error('下载失败')
   const bytes = new Uint8Array(await res.arrayBuffer())
   const contentType = res.headers.get('content-type') ?? ''
-  if (!isAudioPayload(bytes, contentType)) {
-    throw new Error('下载到的不是音频（多半是网页），没有保存。请确认反代正常后重试')
+  if (!isMediaPayload(bytes, contentType)) {
+    throw new Error('下载到的不是音频或视频（多半是网页），没有保存。请确认反代正常后重试')
   }
   const declared = Number(res.headers.get('content-length'))
   if (!res.headers.get('content-encoding') && Number.isFinite(declared) && declared > 0 && bytes.byteLength !== declared) {

@@ -54,7 +54,7 @@ export function DownloadPage() {
       {saveError ? <div className="empty">{saveError}</div> : null}
 
       {tasks.length === 0 ? (
-        <div className="empty">还没有下载记录。在歌曲详情里选择音质即可添加。</div>
+        <div className="empty">还没有下载记录。歌曲页可以选择音质，播放 MV 时也可以下载视频。</div>
       ) : (
         tasks.map((t) => (
           <div key={t.id} className="download-item">

@@ -12,6 +12,7 @@ type Props = {
   onClose: () => void
   onPickQueue: (item: MusicItem) => void
   onPickRecent: (item: MusicItem) => void
+  onPlayMv: (item: MusicItem) => void
 }
 
 export function PlayQueueSheet({
@@ -22,6 +23,7 @@ export function PlayQueueSheet({
   onClose,
   onPickQueue,
   onPickRecent,
+  onPlayMv,
 }: Props) {
   const [tab, setTab] = useState<Tab>('queue')
 
@@ -81,6 +83,7 @@ export function PlayQueueSheet({
                 index={i}
                 active={item.id === currentId}
                 onClick={() => (tab === 'queue' ? onPickQueue(item) : onPickRecent(item))}
+                onPlayMv={onPlayMv}
               />
             ))
           )}

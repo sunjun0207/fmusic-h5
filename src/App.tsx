@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { BottomBar } from './components/BottomBar'
 import { Dialogs } from './components/Dialogs'
 import { DownloadGuide } from './components/DownloadGuide'
+import { MvPlayer } from './components/MvPlayer'
 import { PlayQueueSheet } from './components/PlayQueueSheet'
 import { TopBar } from './components/TopBar'
 import {
@@ -11,13 +12,15 @@ import {
   saveTrackFile,
   type PendingDownload,
 } from './lib/download'
-import { coverUrl, getPlayMeta, getUpdate, postAccess } from './lib/api'
+import { coverUrl, getMvUrl, getPlayMeta, getUpdate, postAccess, resolveMvInfo } from './lib/api'
 import { nextPlayMode, resolveAdvance } from './lib/playback'
 import {
   addRecentPlay,
+  getFavorites,
   getPlayMode,
   getRecentPlays,
   getSettings,
+  rememberMusicMv,
   savePlayMode,
 } from './lib/storage'
 import type { MusicItem, PlayMode, TabId, UpdateInfo } from './lib/types'
@@ -40,6 +43,12 @@ export default function App() {
   const [playMode, setPlayMode] = useState<PlayMode>(() => getPlayMode())
   const [queueOpen, setQueueOpen] = useState(false)
   const [recentVersion, setRecentVersion] = useState(0)
+  const [mvVersion, setMvVersion] = useState(0)
+  const [mvMusic, setMvMusic] = useState<MusicItem | null>(null)
+  const [mvUrl, setMvUrl] = useState('')
+  const [mvLoading, setMvLoading] = useState(false)
+  const [mvError, setMvError] = useState('')
+  const [noMvStamp, setNoMvStamp] = useState<{ id: string; token: number } | null>(null)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [current, setCurrent] = useState<MusicItem | null>(null)
@@ -51,6 +60,11 @@ export default function App() {
   const currentRef = useRef<MusicItem | null>(null)
   const playModeRef = useRef<PlayMode>(playMode)
   const playHistoryRef = useRef<string[]>([])
+  const mvToken = useRef(0)
+  const mvActiveRef = useRef(false)
+  const mvMusicRef = useRef<MusicItem | null>(null)
+  const resumeAudioRef = useRef(false)
+  const playInFlightRef = useRef(false)
 
   useEffect(() => {
     queueRef.current = queue
@@ -64,10 +78,66 @@ export default function App() {
     playModeRef.current = playMode
   }, [playMode])
 
+  useEffect(() => {
+    let cancel = false
+    const seen = new Set<string>()
+    const missing = [...getRecentPlays(), ...getFavorites()].filter((item) => {
+      if (seen.has(item.id)) return false
+      seen.add(item.id)
+      if (typeof item.hasMv !== 'boolean') return true
+      // 旧数据把 MKVRID=MV_0 记成了有 MV，这类记录没有海报，需要再核一次。
+      return item.hasMv === true && !item.mvPic
+    })
+    if (!missing.length) return
+    void (async () => {
+      let changed = false
+      for (const item of missing) {
+        if (cancel) return
+        const info = await resolveMvInfo(item, item.hasMv === true)
+        if (!info || cancel) continue
+        rememberMusicMv(item.id, info.hasMv, info.mvPic)
+        const patch = (song: MusicItem) =>
+          song.id === item.id ? { ...song, hasMv: info.hasMv, mvPic: info.mvPic || song.mvPic } : song
+        setQueue((list) => list.map(patch))
+        setDetail((song) => (song && song.id === item.id ? patch(song) : song))
+        setCurrent((song) => (song && song.id === item.id ? patch(song) : song))
+        changed = true
+      }
+      if (!cancel && changed) setMvVersion((version) => version + 1)
+    })()
+    return () => {
+      cancel = true
+    }
+  }, [])
+
+  useEffect(() => {
+    mvMusicRef.current = mvMusic
+  }, [mvMusic])
+
+  useEffect(() => {
+    if (!mvError) return
+    const timer = window.setTimeout(() => setMvError(''), 2800)
+    return () => window.clearTimeout(timer)
+  }, [mvError])
+
+  const closeMv = useCallback((resume = true) => {
+    mvToken.current += 1
+    mvActiveRef.current = false
+    setMvMusic(null)
+    setMvUrl('')
+    setMvLoading(false)
+    if (resume && resumeAudioRef.current) {
+      void audioRef.current?.play().catch(() => setPlaying(false))
+    }
+    resumeAudioRef.current = false
+  }, [])
+
   const ensurePlay = useCallback(async (music: MusicItem, br?: string) => {
     const audio = audioRef.current
     if (!audio) return
+    if (mvActiveRef.current && mvMusicRef.current?.id !== music.id) closeMv(false)
     const token = ++playToken.current
+    playInFlightRef.current = true
     setCurrent(music)
     addRecentPlay(music)
     setRecentVersion((v) => v + 1)
@@ -79,12 +149,15 @@ export default function App() {
       if (audio.getAttribute('src') !== meta.url) {
         audio.src = meta.url
       }
+      if (mvActiveRef.current) return
       await audio.play()
     } catch (e) {
       console.error(e)
       setPlaying(false)
+    } finally {
+      if (token === playToken.current) playInFlightRef.current = false
     }
-  }, [])
+  }, [closeMv])
 
   const playRelative = useCallback(
     (delta: number) => {
@@ -100,7 +173,7 @@ export default function App() {
       playHistoryRef.current = result.history
       const audio = audioRef.current
       if (result.replay || !result.item || result.item.id === cur.id) {
-        if (!audio) return
+        if (!audio || mvActiveRef.current) return
         audio.currentTime = 0
         void audio.play().catch(() => setPlaying(false))
         return
@@ -133,6 +206,7 @@ export default function App() {
         playHistoryRef.current = [...playHistoryRef.current, currentRef.current.id].slice(-50)
       }
       setQueueOpen(false)
+      if (mvActiveRef.current) closeMv(false)
       if (currentRef.current?.id === item.id) {
         const audio = audioRef.current
         if (audio?.paused) void audio.play().catch(() => setPlaying(false))
@@ -141,8 +215,52 @@ export default function App() {
       setDetail((d) => (d ? item : d))
       void ensurePlay(item)
     },
-    [ensurePlay],
+    [ensurePlay, closeMv],
   )
+
+  const playMv = useCallback(async (music: MusicItem) => {
+    if (music.hasMv === false) {
+      setMvError('这首歌暂时没有 MV')
+      return
+    }
+    const token = ++mvToken.current
+    const audio = audioRef.current
+    resumeAudioRef.current = Boolean(audio && !audio.paused) || playInFlightRef.current
+    mvActiveRef.current = true
+    audio?.pause()
+    setMvError('')
+    setMvMusic(music)
+    setMvUrl('')
+    setMvLoading(true)
+    try {
+      const url = await getMvUrl(music.id)
+      if (token !== mvToken.current) return
+      audioRef.current?.pause()
+      setMvUrl(url)
+    } catch (error) {
+      if (token !== mvToken.current) return
+      mvActiveRef.current = false
+      setMvMusic(null)
+      setMvUrl('')
+      const message = error instanceof Error ? error.message : 'MV 播放失败'
+      setMvError(message)
+      if (message.includes('没有')) {
+        rememberMusicMv(music.id, false)
+        const patch = (song: MusicItem) => (song.id === music.id ? { ...song, hasMv: false } : song)
+        setQueue((list) => list.map(patch))
+        setDetail((song) => (song && song.id === music.id ? patch(song) : song))
+        setCurrent((song) => (song && song.id === music.id ? patch(song) : song))
+        setNoMvStamp({ id: music.id, token: Date.now() })
+        setMvVersion((version) => version + 1)
+      }
+      if (resumeAudioRef.current) {
+        resumeAudioRef.current = false
+        void audioRef.current?.play().catch(() => setPlaying(false))
+      }
+    } finally {
+      if (token === mvToken.current) setMvLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     const syncDownload = () => {
@@ -162,9 +280,19 @@ export default function App() {
 
     const onTime = () => setCurrentTime(audio.currentTime)
     const onMeta = () => setDuration(audio.duration || 0)
-    const onPlay = () => setPlaying(true)
+    const onPlay = () => {
+      if (mvActiveRef.current) {
+        audio.pause()
+        return
+      }
+      setPlaying(true)
+    }
     const onPause = () => setPlaying(false)
     const onEnded = () => {
+      if (mvActiveRef.current) {
+        setPlaying(false)
+        return
+      }
       const cur = currentRef.current
       if (!cur) {
         setPlaying(false)
@@ -179,6 +307,7 @@ export default function App() {
       })
       playHistoryRef.current = result.history
       if (result.replay || !result.item || result.item.id === cur.id) {
+        if (mvActiveRef.current) return
         audio.currentTime = 0
         void audio.play().catch(() => setPlaying(false))
         return
@@ -239,6 +368,7 @@ export default function App() {
     setQueue(q)
     playHistoryRef.current = []
     setDetail(item)
+    if (mvActiveRef.current && mvMusicRef.current?.id !== item.id) closeMv(false)
     void ensurePlay(item)
   }
 
@@ -281,6 +411,7 @@ export default function App() {
             playMode={playMode}
             onCycleMode={cyclePlayMode}
             onOpenQueue={() => setQueueOpen(true)}
+            onPlayMv={(item) => void playMv(item)}
           />
         ) : (
           <>
@@ -288,14 +419,24 @@ export default function App() {
               <HomePage
                 onOpenSearch={() => setTab('search')}
                 onOpenMusic={openMusic}
+                onPlayMv={(item) => void playMv(item)}
                 onOpenQueue={() => setQueueOpen(true)}
                 queue={queue}
                 current={current}
                 recentVersion={recentVersion}
+                mvVersion={mvVersion}
               />
             )}
-            {tab === 'search' && <SearchPage onOpenMusic={openMusic} />}
-            {tab === 'favorite' && <FavoritePage onOpenMusic={openMusic} />}
+            {tab === 'search' && (
+              <SearchPage
+                onOpenMusic={openMusic}
+                onPlayMv={(item) => void playMv(item)}
+                noMvStamp={noMvStamp}
+              />
+            )}
+            {tab === 'favorite' && (
+              <FavoritePage onOpenMusic={openMusic} onPlayMv={(item) => void playMv(item)} mvVersion={mvVersion} />
+            )}
             {tab === 'download' && <DownloadPage />}
             {tab === 'setting' && <SettingPage />}
           </>
@@ -370,7 +511,13 @@ export default function App() {
           const next = list.some((x) => x.id === item.id) ? list : [item, ...list]
           playFromList(item, next)
         }}
+        onPlayMv={(item) => {
+          setQueueOpen(false)
+          void playMv(item)
+        }}
       />
+      {mvMusic ? <MvPlayer music={mvMusic} url={mvUrl} loading={mvLoading} onClose={() => closeMv()} /> : null}
+      {mvError ? <div className="mv-toast">{mvError}</div> : null}
       <DownloadGuide
         pending={dlGuideHidden ? null : pendingDl}
         saving={dlSaving}

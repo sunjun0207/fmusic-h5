@@ -6,18 +6,20 @@ import { getRecentPlays } from '../lib/storage'
 type Props = {
   onOpenSearch: () => void
   onOpenMusic: (item: MusicItem, queue?: MusicItem[]) => void
+  onPlayMv: (item: MusicItem) => void
   onOpenQueue: () => void
   queue: MusicItem[]
   current: MusicItem | null
   recentVersion: number
+  mvVersion: number
 }
 
-export function HomePage({ onOpenSearch, onOpenMusic, onOpenQueue, queue, current, recentVersion }: Props) {
+export function HomePage({ onOpenSearch, onOpenMusic, onPlayMv, onOpenQueue, queue, current, recentVersion, mvVersion }: Props) {
   const [recent, setRecent] = useState(() => getRecentPlays())
 
   useEffect(() => {
     setRecent(getRecentPlays())
-  }, [recentVersion])
+  }, [recentVersion, mvVersion])
 
   return (
     <div>
@@ -67,6 +69,7 @@ export function HomePage({ onOpenSearch, onOpenMusic, onOpenQueue, queue, curren
             index={i}
             active={item.id === current?.id}
             onClick={() => onOpenMusic(item, recent)}
+            onPlayMv={onPlayMv}
           />
         ))
       )}

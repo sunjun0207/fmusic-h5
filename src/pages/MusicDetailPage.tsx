@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { coverUrl, getLyric, getPlayMeta, postDownload, toProxyAudioUrl } from '../lib/api'
+import { useEffect, useState } from 'react'
+import { coverUrl, getLyric, getMvUrl, getPlayMeta, postDownload, toProxyAudioUrl } from '../lib/api'
 import { formatBytes, requestDownload, trackExt, trackFilename } from '../lib/download'
 import { PLAY_MODE_LABEL } from '../lib/playback'
-import { getSettings, isFavorite, toggleFavorite, upsertDownload } from '../lib/storage'
+import { getSettings, getShowLyric, isFavorite, saveShowLyric, toggleFavorite, upsertDownload } from '../lib/storage'
 import type { DownloadTask, LyricLine, MusicItem, PlayMode, QualityOption } from '../lib/types'
 import { DownloadSheet } from '../components/DownloadSheet'
+import { LyricView } from '../components/LyricView'
 import { TopBar } from '../components/TopBar'
 
 function PlayModeIcon({ mode }: { mode: PlayMode }) {
@@ -63,6 +64,7 @@ type Props = {
   onNext: () => void
   onCycleMode: () => void
   onOpenQueue: () => void
+  onPlayMv: (music: MusicItem) => void
   onEnsurePlay: (music: MusicItem, br?: string) => Promise<void>
 }
 
@@ -82,17 +84,15 @@ export function MusicDetailPage({
   playMode,
   onCycleMode,
   onOpenQueue,
+  onPlayMv,
 }: Props) {
   const [lyrics, setLyrics] = useState<LyricLine[]>([])
+  const [lyricStatus, setLyricStatus] = useState<'loading' | 'ready' | 'empty'>('empty')
+  const [lyricOpen, setLyricOpen] = useState(() => getShowLyric())
   const [sheetOpen, setSheetOpen] = useState(false)
   const [dlLoading, setDlLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [fav, setFav] = useState(() => isFavorite(music.id))
-  const lyricRef = useRef<HTMLDivElement>(null)
-  const activeBaseRef = useRef<HTMLSpanElement>(null)
-  const userSeekingRef = useRef(false)
-  const programmaticRef = useRef(false)
-  const scrollTimerRef = useRef(0)
   const settings = getSettings()
 
   useEffect(() => {
@@ -102,12 +102,17 @@ export function MusicDetailPage({
   useEffect(() => {
     let cancelled = false
     setLyrics([])
+    setLyricStatus('loading')
     getLyric(music.id)
       .then((lines) => {
-        if (!cancelled) setLyrics(lines)
+        if (cancelled) return
+        setLyrics(lines)
+        setLyricStatus(lines.length ? 'ready' : 'empty')
       })
       .catch(() => {
-        if (!cancelled) setLyrics([])
+        if (cancelled) return
+        setLyrics([])
+        setLyricStatus('empty')
       })
     void onEnsurePlay(music, settings.quality)
     return () => {
@@ -116,93 +121,17 @@ export function MusicDetailPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [music.id])
 
-  const activeIndex = useMemo(() => {
-    if (!lyrics.length) return -1
-    let idx = -1
-    for (let i = 0; i < lyrics.length; i++) {
-      if (lyrics[i]!.time <= currentTime) idx = i
-      else break
-    }
-    return idx
-  }, [lyrics, currentTime])
-
-  useEffect(() => {
-    let frame = 0
-    const originTime = currentTime
-    const originAt = performance.now()
-    const paint = (time: number) => {
-      const el = activeBaseRef.current
-      const line = activeIndex >= 0 ? lyrics[activeIndex] : undefined
-      if (!el || !line) return
-      const next = lyrics[activeIndex + 1]
-      const end = next ? next.time : duration > line.time ? duration : line.time + 6
-      const span = Math.max(0.35, end - line.time)
-      const progress = Math.min(1, Math.max(0, (time - line.time) / span))
-      el.style.setProperty('--lyric-p', `${(progress * 100).toFixed(2)}%`)
-    }
-    const step = (now: number) => {
-      paint(playing ? originTime + (now - originAt) / 1000 : originTime)
-      if (playing) frame = requestAnimationFrame(step)
-    }
-    frame = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(frame)
-  }, [playing, currentTime, activeIndex, lyrics, duration])
-
-  useEffect(() => {
-    return () => window.clearTimeout(scrollTimerRef.current)
-  }, [])
-
-  useEffect(() => {
-    if (userSeekingRef.current || activeIndex < 0 || !lyricRef.current) return
-    const el = lyricRef.current.querySelector(`[data-i="${activeIndex}"]`) as HTMLElement | null
-    if (!el) return
-    programmaticRef.current = true
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
-    const timer = window.setTimeout(() => {
-      programmaticRef.current = false
-    }, 700)
-    return () => {
-      window.clearTimeout(timer)
-      programmaticRef.current = false
-    }
-  }, [activeIndex])
+  const toggleLyric = () => {
+    setLyricOpen((open) => {
+      const next = !open
+      saveShowLyric(next)
+      return next
+    })
+  }
 
   const playAt = (time: number) => {
     onSeek(Math.max(0, time))
     if (!playing) onTogglePlay()
-  }
-
-  const onLyricScroll = () => {
-    if (programmaticRef.current || lyrics.length === 0) return
-    userSeekingRef.current = true
-    window.clearTimeout(scrollTimerRef.current)
-    scrollTimerRef.current = window.setTimeout(() => {
-      const root = lyricRef.current
-      if (!root) {
-        userSeekingRef.current = false
-        return
-      }
-      const mid = root.getBoundingClientRect().top + root.clientHeight / 2
-      let best = -1
-      let bestDist = Number.POSITIVE_INFINITY
-      root.querySelectorAll<HTMLElement>('[data-i]').forEach((el) => {
-        const rect = el.getBoundingClientRect()
-        const dist = Math.abs(rect.top + rect.height / 2 - mid)
-        if (dist < bestDist) {
-          bestDist = dist
-          best = Number(el.dataset.i)
-        }
-      })
-      const line = best >= 0 ? lyrics[best] : undefined
-      if (line && Math.abs(line.time - currentTime) >= 0.35) {
-        playAt(line.time)
-        window.setTimeout(() => {
-          userSeekingRef.current = false
-        }, 450)
-        return
-      }
-      userSeekingRef.current = false
-    }, 160)
   }
 
   const onPickQuality = async (option: QualityOption) => {
@@ -239,50 +168,95 @@ export function MusicDetailPage({
   const src = coverUrl(music.image)
 
   return (
-    <div className="detail-page">
+    <div className={`detail-page${lyricOpen ? ' is-lyric' : ''}`}>
       <TopBar showBack onBack={onBack} plain />
 
-      <div className="detail-cover-wrap">
-        {src ? (
-          <img className="detail-cover" src={src} alt="" />
-        ) : (
-          <div className="detail-cover" />
-        )}
-      </div>
+      {lyricOpen ? (
+        <section className="lyric-screen" aria-label={`${music.title} 歌词`}>
+          {src ? (
+            <div className="lyric-bg" style={{ backgroundImage: `url(${JSON.stringify(src)})` }} />
+          ) : (
+            <div className="lyric-bg lyric-bg-empty" />
+          )}
+          <div className="lyric-bg-mask" />
+          <header className="lyric-screen-bar">
+            <div className="lyric-heading">
+              <strong>{music.title}</strong>
+              <span>{music.artist}</span>
+            </div>
+          </header>
+          <div className="lyric-body">
+            <LyricView lines={lyrics} status={lyricStatus} current={currentTime} onSeek={playAt} />
+          </div>
+        </section>
+      ) : (
+        <>
+          <button type="button" className="detail-cover-wrap" onClick={toggleLyric} aria-label="显示歌词">
+            {src ? <img className="detail-cover" src={src} alt="" /> : <div className="detail-cover" />}
+          </button>
+          <div className="detail-info">
+            <h2>{music.title}</h2>
+            <p>
+              {music.artist}
+              {music.album ? ` · ${music.album}` : ''}
+              {music.duration > 0 ? ` · ${fmt(music.duration)}` : ''}
+            </p>
+          </div>
+        </>
+      )}
 
-      <div className="detail-meta">
-        <div className="detail-info">
-          <h2>{music.title}</h2>
-          <p>
-            {music.artist}
-            {music.album ? ` · ${music.album}` : ''}
-            {music.duration > 0 ? ` · ${fmt(music.duration)}` : ''}
-          </p>
-        </div>
-        <div className="detail-actions">
+      <div className="detail-actions">
+        <button
+          type="button"
+          className={`action-chip${fav ? ' on' : ''}`}
+          onClick={() => setFav(toggleFavorite(music))}
+          aria-label={fav ? '取消收藏' : '收藏'}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill={fav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8">
+            <path
+              d="M12 20.2s-6.6-4.2-6.6-9C5.4 8.4 7.3 6.6 9.7 6.6c1.3 0 2.5.6 3.3 1.7.8-1.1 2-1.7 3.3-1.7 2.4 0 4.3 1.8 4.3 4.6 0 4.8-6.6 9-6.6 9z"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span>{fav ? '已收藏' : '收藏'}</span>
+        </button>
+        <button
+          type="button"
+          className={`action-chip lyric${lyricOpen ? ' on' : ''}`}
+          aria-pressed={lyricOpen}
+          onClick={toggleLyric}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M5 6h14M5 12h10M5 18h14" strokeLinecap="round" />
+          </svg>
+          <span>{lyricOpen ? '收起' : '歌词'}</span>
+        </button>
+        {music.hasMv ? (
           <button
             type="button"
-            className={`action-chip${fav ? ' on' : ''}`}
-            onClick={() => setFav(toggleFavorite(music))}
-            aria-label={fav ? '取消收藏' : '收藏'}
+            className="action-chip mv"
+            onPointerDown={() => {
+              void getMvUrl(music.id).catch(() => undefined)
+            }}
+            onClick={() => onPlayMv(music)}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill={fav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8">
-              <path
-                d="M12 20.2s-6.6-4.2-6.6-9C5.4 8.4 7.3 6.6 9.7 6.6c1.3 0 2.5.6 3.3 1.7.8-1.1 2-1.7 3.3-1.7 2.4 0 4.3 1.8 4.3 4.6 0 4.8-6.6 9-6.6 9z"
-                strokeLinejoin="round"
-              />
-            </svg>
-            <span>{fav ? '已收藏' : '收藏'}</span>
-          </button>
-          <button type="button" className="action-chip download" onClick={() => setSheetOpen(true)}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M12 4v11" strokeLinecap="round" />
-              <path d="m7.5 11.5 4.5 4.5 4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M5 19h14" strokeLinecap="round" />
+              <rect x="3" y="6" width="13" height="12" rx="2" />
+              <path d="m16 10 5-2v8l-5-2v-4Z" strokeLinejoin="round" />
             </svg>
-            <span>下载</span>
+            <span>播放MV</span>
           </button>
-        </div>
+        ) : music.hasMv === false ? (
+          <span className="action-chip is-static">暂无MV</span>
+        ) : null}
+        <button type="button" className="action-chip download" onClick={() => setSheetOpen(true)}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M12 4v11" strokeLinecap="round" />
+            <path d="m7.5 11.5 4.5 4.5 4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M5 19h14" strokeLinecap="round" />
+          </svg>
+          <span>下载</span>
+        </button>
       </div>
 
       <div>
@@ -356,26 +330,6 @@ export function MusicDetailPage({
       </div>
 
       {msg ? <div className="empty" style={{ padding: 8 }}>{msg}</div> : null}
-
-      <div className="lyric-panel" ref={lyricRef} onScroll={onLyricScroll}>
-        {lyrics.length === 0 ? (
-          <div className="empty">暂无歌词</div>
-        ) : (
-          lyrics.map((line, i) => (
-            <button
-              key={`${line.time}-${i}`}
-              type="button"
-              data-i={i}
-              className={`lyric-line${i === activeIndex ? ' active' : ''}${i < activeIndex ? ' past' : ''}`}
-              onClick={() => playAt(line.time)}
-            >
-              <span className="lyric-base" ref={i === activeIndex ? activeBaseRef : undefined}>
-                {line.lineLyric}
-              </span>
-            </button>
-          ))
-        )}
-      </div>
 
       <DownloadSheet
         open={sheetOpen}

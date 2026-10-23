@@ -1,16 +1,22 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { SongRow } from '../components/SongRow'
 import { clearFavorites, getFavorites, removeFavorite } from '../lib/storage'
 import type { MusicItem } from '../lib/types'
 
 type Props = {
   onOpenMusic: (item: MusicItem, queue?: MusicItem[]) => void
+  onPlayMv: (item: MusicItem) => void
+  mvVersion: number
 }
 
-export function FavoritePage({ onOpenMusic }: Props) {
+export function FavoritePage({ onOpenMusic, onPlayMv, mvVersion }: Props) {
   const [list, setList] = useState(() => getFavorites())
 
   const refresh = () => setList(getFavorites())
+
+  useEffect(() => {
+    setList(getFavorites())
+  }, [mvVersion])
 
   return (
     <div>
@@ -42,6 +48,7 @@ export function FavoritePage({ onOpenMusic }: Props) {
               item={item}
               index={i}
               onClick={() => onOpenMusic(item, list)}
+              onPlayMv={onPlayMv}
             />
             <button
               type="button"

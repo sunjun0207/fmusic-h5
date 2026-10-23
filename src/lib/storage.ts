@@ -9,6 +9,7 @@ const KEYS = {
   recentPlays: 'fmusic_recent_plays',
   favorites: 'fmusic_favorites',
   playMode: 'fmusic_play_mode',
+  showLyric: 'fmusic_show_lyric',
 } as const
 
 function readJson<T>(key: string, fallback: T): T {
@@ -96,14 +97,24 @@ export function setDismissedNotification(key: string) {
   localStorage.setItem(KEYS.dismissedNotification, key)
 }
 
+function keepMv(prev: MusicItem | undefined, item: MusicItem): MusicItem {
+  if (!prev) return item
+  return {
+    ...item,
+    hasMv: typeof item.hasMv === 'boolean' ? item.hasMv : prev.hasMv,
+    mvPic: item.mvPic || prev.mvPic,
+  }
+}
+
 export function getRecentPlays(): MusicItem[] {
   return readJson<MusicItem[]>(KEYS.recentPlays, [])
 }
 
 export function addRecentPlay(item: MusicItem) {
-  const list = getRecentPlays().filter((x) => x.id !== item.id)
-  list.unshift(item)
-  writeJson(KEYS.recentPlays, list.slice(0, 40))
+  const list = getRecentPlays()
+  const prev = list.find((song) => song.id === item.id)
+  const next = keepMv(prev, item)
+  writeJson(KEYS.recentPlays, [next, ...list.filter((song) => song.id !== item.id)].slice(0, 40))
 }
 
 export function getFavorites(): MusicItem[] {
@@ -124,7 +135,8 @@ export function toggleFavorite(item: MusicItem): boolean {
     )
     return false
   }
-  writeJson(KEYS.favorites, [item, ...list].slice(0, 200))
+  const prev = list.find((song) => song.id === item.id) ?? getRecentPlays().find((song) => song.id === item.id)
+  writeJson(KEYS.favorites, [keepMv(prev, item), ...list].slice(0, 200))
   return true
 }
 
@@ -148,4 +160,30 @@ export function getPlayMode(): PlayMode {
 
 export function savePlayMode(mode: PlayMode) {
   localStorage.setItem(KEYS.playMode, mode)
+}
+
+export function getShowLyric(): boolean {
+  return localStorage.getItem(KEYS.showLyric) === '1'
+}
+
+export function saveShowLyric(open: boolean) {
+  localStorage.setItem(KEYS.showLyric, open ? '1' : '0')
+}
+
+export function rememberMusicMv(id: string, hasMv: boolean, mvPic?: string) {
+  const patch = (list: MusicItem[]) => {
+    let changed = false
+    const next = list.map((item) => {
+      if (item.id !== id) return item
+      const pic = mvPic || item.mvPic
+      if (item.hasMv === hasMv && item.mvPic === pic) return item
+      changed = true
+      return { ...item, hasMv, mvPic: pic }
+    })
+    return { changed, next }
+  }
+  const recent = patch(getRecentPlays())
+  if (recent.changed) writeJson(KEYS.recentPlays, recent.next)
+  const favorites = patch(getFavorites())
+  if (favorites.changed) writeJson(KEYS.favorites, favorites.next)
 }

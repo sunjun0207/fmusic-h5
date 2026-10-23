@@ -1,4 +1,4 @@
-import { buildNmobiPath } from './kuwoDes'
+import { buildMvNmobiPath, buildNmobiPath } from './kuwoDes'
 import type {
   DownloadTask,
   LyricLine,
@@ -21,6 +21,21 @@ function pick<T>(obj: Record<string, unknown>, ...keys: string[]): T | undefined
 function parseDuration(v: unknown): number {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
+}
+
+function mvPicture(raw: Record<string, unknown>) {
+  const direct = String(pick(raw, 'hts_MVPIC') ?? '')
+  if (direct) return direct
+  const path = String(pick(raw, 'MVPIC') ?? '').replace(/^\/+/, '')
+  return path ? `https://img4.kuwo.cn/wmvpic/${path}` : ''
+}
+
+function songHasMv(raw: Record<string, unknown>) {
+  const flag = String(pick(raw, 'MVFLAG') ?? '')
+  const mkv = String(pick(raw, 'MKVRID') ?? '')
+  // 没有 MV 时酷我也会给 MKVRID=MV_0，不能用 startsWith('MV_') 判断。
+  if (flag === '1') return true
+  return /^MV_[1-9]\d*$/.test(mkv)
 }
 
 function mapSearchItem(raw: Record<string, unknown>): MusicItem | null {
@@ -46,6 +61,7 @@ function mapSearchItem(raw: Record<string, unknown>): MusicItem | null {
   const duration = parseDuration(pick(raw, 'DURATION', 'duration'))
   const albumPic = String(pick(raw, 'web_albumpic_short', 'albumPic', 'pic') ?? '')
   const fileInfo = String(pick(raw, 'MINFO', 'mInfo') ?? '')
+  const mvPic = mvPicture(raw)
   return {
     id,
     title: title || '未知歌曲',
@@ -54,6 +70,8 @@ function mapSearchItem(raw: Record<string, unknown>): MusicItem | null {
     albumId,
     duration,
     image: albumPic,
+    hasMv: songHasMv(raw),
+    mvPic: mvPic || undefined,
     fileInfo,
   }
 }
@@ -64,6 +82,10 @@ export function coverUrl(path?: string): string {
     try {
       const u = new URL(path)
       if (u.hostname.includes('kuwo.cn')) {
+        if (u.hostname.startsWith('img4.') || u.pathname.includes('/wmvpic/')) {
+          u.protocol = 'https:'
+          return u.toString()
+        }
         return `/proxy/kw-img${u.pathname}${u.search}`
       }
     } catch {
@@ -149,6 +171,32 @@ export async function searchMusic(
   }
 }
 
+const mvInfoCache = new Map<string, { hasMv: boolean; mvPic?: string }>()
+
+/** 最近播放、收藏里的旧记录可能没有 MV 标记，按歌曲 id 再查一次并记住。 */
+export async function resolveMvInfo(
+  item: MusicItem,
+  force = false,
+): Promise<{ hasMv: boolean; mvPic?: string } | null> {
+  if (!force && typeof item.hasMv === 'boolean') return { hasMv: item.hasMv, mvPic: item.mvPic }
+  const cached = mvInfoCache.get(item.id)
+  if (cached) return cached
+  const queries = [`${item.title} ${item.artist}`.trim(), item.title.trim()].filter((query, index, all) => query && all.indexOf(query) === index)
+  for (const keyword of queries) {
+    try {
+      const result = await searchMusic(keyword, 0, 20)
+      const matched = result.list.find((song) => song.id === item.id)
+      if (!matched) continue
+      const info = { hasMv: matched.hasMv === true, mvPic: matched.mvPic }
+      mvInfoCache.set(item.id, info)
+      return info
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 export async function searchKey(keyword: string): Promise<string[]> {
   if (!keyword.trim()) return []
   const res = await fetch(
@@ -204,19 +252,21 @@ export async function getLyric(musicId: string): Promise<LyricLine[]> {
     .filter((l) => l.lineLyric)
 }
 
+function parseKv(text: string): Record<string, string> {
+  const map: Record<string, string> = {}
+  text.split(/\r?\n/).forEach((line) => {
+    const idx = line.indexOf('=')
+    if (idx > 0) map[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
+  })
+  return map
+}
+
 export async function getPlayMeta(rid: string, br = '320kmp3'): Promise<PlayMeta> {
   const isFlac = br.includes('flac')
   const format = isFlac ? 'flac|mp3' : 'mp3'
   const path = buildNmobiPath(rid, format, isFlac ? '' : br)
   const res = await fetch(path)
-  const text = await res.text()
-  const map: Record<string, string> = {}
-  text.split(/\r?\n/).forEach((line) => {
-    const idx = line.indexOf('=')
-    if (idx > 0) {
-      map[line.slice(0, idx).trim()] = line.slice(idx + 1).trim()
-    }
-  })
+  const map = parseKv(await res.text())
   const url = map.url
   if (!url) throw new Error('未获取到播放地址')
   return {
@@ -224,6 +274,27 @@ export async function getPlayMeta(rid: string, br = '320kmp3'): Promise<PlayMeta
     format: map.format ?? '',
     bitrate: map.bitrate ?? '',
   }
+}
+
+const mvCache = new Map<string, Promise<string>>()
+
+export function getMvUrl(rid: string): Promise<string> {
+  const cached = mvCache.get(rid)
+  if (cached) return cached
+  const job = fetchMvUrl(rid).catch((error: unknown) => {
+    mvCache.delete(rid)
+    throw error
+  })
+  mvCache.set(rid, job)
+  return job
+}
+
+async function fetchMvUrl(rid: string): Promise<string> {
+  const res = await fetch(buildMvNmobiPath(rid))
+  if (!res.ok) throw new Error('MV 地址获取失败')
+  const map = parseKv(await res.text())
+  if (!map.url) throw new Error('这首歌暂时没有可播放的 MV')
+  return rewriteAudioUrl(map.url)
 }
 
 export async function getUpdate(): Promise<UpdateInfo | null> {

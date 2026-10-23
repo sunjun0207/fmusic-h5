@@ -242,3 +242,11 @@ export const buildNmobiPath = (rid: string, format = 'mp3', br = '320kmp3'): str
   const q = encryptQuery(buildPlain(rid, format, br || undefined))
   return `/proxy/kw-nmobi/mobi.s?f=kuwo&q=${encodeURIComponent(q)}`
 }
+
+export const buildMvPlain = (rid: string): string =>
+  `user=0&corp=kuwo&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk&p2p=1&type=convert_mv_url2&sig=0&format=mp4&rid=${rid}`
+
+export const buildMvNmobiPath = (rid: string): string => {
+  const q = encryptQuery(buildMvPlain(rid))
+  return `/proxy/kw-nmobi/mobi.s?f=kuwo&q=${encodeURIComponent(q)}`
+}

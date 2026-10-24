@@ -36,6 +36,7 @@ type IOSVideo = HTMLVideoElement & {
 
 export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQuality }: Props) {
   const layerRef = useRef<HTMLDivElement>(null)
+  const stageRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const resumeAt = useRef(0)
   const volumeRef = useRef(100)
@@ -50,6 +51,20 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   const [brightness, setBrightness] = useState(100)
   const [comments, setComments] = useState<SongComment[]>([])
   const [danmakuOn] = useDanmakuSetting()
+  const [danmakuBox, setDanmakuBox] = useState({ top: 12, left: 8, right: 8 })
+  const [qualityOpen, setQualityOpen] = useState(false)
+
+  useEffect(() => {
+    if (!qualityOpen) return
+    const close = (event: PointerEvent) => {
+      const target = event.target
+      const menu = layerRef.current?.querySelector('.mv-quality')
+      if (target instanceof Node && menu?.contains(target)) return
+      setQualityOpen(false)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [qualityOpen])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -112,6 +127,48 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       cancel = true
     }
   }, [music.id])
+
+  useEffect(() => {
+    const stage = stageRef.current
+    const video = videoRef.current
+    if (!stage) return
+    const place = () => {
+      const sw = stage.clientWidth
+      const sh = stage.clientHeight
+      const vw = video?.videoWidth || 0
+      const vh = video?.videoHeight || 0
+      if (!video || !sw || !sh || !vw || !vh) {
+        setDanmakuBox({ top: 12, left: 8, right: 8 })
+        return
+      }
+      const scale = Math.min(sw / vw, sh / vh)
+      const pictureWidth = Math.round(vw * scale)
+      const pictureHeight = Math.round(vh * scale)
+      video.style.width = `${pictureWidth}px`
+      video.style.height = `${pictureHeight}px`
+      video.style.objectFit = 'contain'
+      const pictureTop = Math.max(0, (sh - pictureHeight) / 2)
+      const pictureLeft = Math.max(0, (sw - pictureWidth) / 2)
+      const head = chrome ? stage.parentElement?.querySelector('.mv-head') : null
+      const headBottom = head instanceof HTMLElement ? head.offsetHeight : 0
+      const top = headBottom > pictureTop ? Math.max(pictureTop + 8, headBottom + 4) : pictureTop + 8
+      setDanmakuBox({
+        top: Math.round(top),
+        left: Math.round(pictureLeft + 8),
+        right: Math.round(pictureLeft + 8),
+      })
+    }
+    place()
+    const frame = window.requestAnimationFrame(place)
+    const observer = new ResizeObserver(place)
+    observer.observe(stage)
+    video?.addEventListener('loadedmetadata', place)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer.disconnect()
+      video?.removeEventListener('loadedmetadata', place)
+    }
+  }, [url, chrome, fullscreen])
 
   useEffect(() => {
     volumeRef.current = volume
@@ -210,7 +267,7 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
         </button>
       </header>
 
-      <div className="mv-stage" onClick={() => setChrome((open) => !open)}>
+      <div ref={stageRef} className="mv-stage" onClick={() => setChrome((open) => !open)}>
         {url ? (
           <video
             key={url}
@@ -229,7 +286,7 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
           <div className="mv-loading">{loading ? '正在获取 MV…' : 'MV 准备中'}</div>
         )}
         <div className="mv-dim" style={{ opacity: (100 - brightness) / 100 }} />
-        <DanmakuLayer comments={comments} enabled={danmakuOn} />
+        <DanmakuLayer comments={comments} enabled={danmakuOn} style={danmakuBox} />
       </div>
 
       <div className="mv-chrome mv-bar">
@@ -289,27 +346,49 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
           </div>
         </div>
         <div className="mv-actions">
-        <label className="mv-pill mv-quality">
-          <span>清晰度</span>
-          <select
-            aria-label="清晰度"
-            value={visibleMvQuality(quality)}
+        <div className={`mv-quality${qualityOpen ? ' is-open' : ''}`}>
+          <button
+            type="button"
+            className="mv-pill"
+            aria-haspopup="listbox"
+            aria-expanded={qualityOpen}
             disabled={loading}
-            onChange={(event) => {
-              const next = event.target.value
-              if (next === visibleMvQuality(quality)) return
-              if (qualities.length > 0 && !qualities.includes(next)) return
-              resumeAt.current = videoRef.current?.currentTime || 0
-              onQuality(next)
-            }}
+            onClick={() => setQualityOpen((open) => !open)}
           >
-            {MV_QUALITIES.map((item) => (
-              <option key={item.id} value={item.id} disabled={qualities.length > 0 && !qualities.includes(item.id)}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
+            <span>清晰度</span>
+            <span>{mvLabel(quality)}</span>
+          </button>
+          {qualityOpen ? (
+            <div className="mv-quality-menu" role="listbox" aria-label="清晰度">
+              {MV_QUALITIES.map((item) => {
+                const missing = !qualities.includes(item.id)
+                const current = item.id === visibleMvQuality(quality)
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="option"
+                    aria-selected={current}
+                    aria-disabled={missing}
+                    disabled={missing}
+                    className={current ? 'is-on' : ''}
+                    onClick={() => {
+                      if (missing || current) {
+                        setQualityOpen(false)
+                        return
+                      }
+                      resumeAt.current = videoRef.current?.currentTime || 0
+                      setQualityOpen(false)
+                      onQuality(item.id)
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                )
+              })}
+            </div>
+          ) : null}
+        </div>
         <div className="mv-action-end">
         <DanmakuSwitch light />
         <button

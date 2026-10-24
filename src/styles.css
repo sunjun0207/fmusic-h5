@@ -403,12 +403,13 @@ img {
 
 .detail-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   width: 100%;
 }
 
 .detail-actions .action-chip {
-  flex: 1 1 0;
+  flex: 1 1 calc(33.33% - 8px);
   min-width: 0;
   padding: 0 6px;
   gap: 4px;
@@ -455,6 +456,7 @@ img {
 .action-chip.download,
 .action-chip.mv,
 .action-chip.lyric.on,
+.action-chip.comment.on,
 .util-btn {
   color: var(--teal-deep);
   background: rgba(26, 166, 160, 0.1);
@@ -1025,6 +1027,30 @@ img {
   font-size: 0.78rem;
 }
 
+.lyric-poster {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  flex: none;
+  padding-top: 2px;
+}
+
+.lyric-poster img,
+.lyric-poster span {
+  width: 76px;
+  height: 76px;
+  border-radius: 18px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+
+.lyric-screen .danmaku-layer {
+  height: 54px;
+  margin-top: 4px;
+}
+
 .lyric-body {
   flex: 1;
   min-height: 0;
@@ -1342,29 +1368,38 @@ img {
 }
 
 .mv-quality {
-  padding-right: 12px;
+  position: relative;
 }
 
-.mv-quality select {
+.mv-quality-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 112px;
+  padding: 6px;
+  border-radius: 16px;
+  background: rgba(12, 20, 24, 0.94);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
+}
+
+.mv-quality-menu button {
   height: 36px;
-  margin: 0;
-  padding: 0 16px 0 2px;
-  border: none;
-  border-radius: 999px;
-  appearance: none;
-  -webkit-appearance: none;
-  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.2 4.2 6 8l3.8-3.8' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") right center / 12px 12px no-repeat;
+  border-radius: 12px;
   color: #fff;
-  font: inherit;
   font-weight: 700;
 }
 
-.mv-quality option {
-  color: #111;
+.mv-quality-menu button.is-on {
+  background: rgba(255, 255, 255, 0.16);
 }
 
-.mv-quality option:disabled {
-  color: #9aa3a8;
+.mv-quality-menu button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 
 .mv-stage {
@@ -1377,11 +1412,13 @@ img {
 
 .mv-stage video {
   position: absolute;
-  inset: 0;
+  left: 50%;
+  top: 50%;
   width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  transform: translate(-50%, -50%);
   object-fit: contain;
   object-position: center;
   background: #000;
@@ -1407,31 +1444,30 @@ img {
   inset: 0;
   width: 100%;
   height: 100%;
+  width: 100dvw;
+  height: 100dvh;
   max-width: none;
   max-height: none;
   border-radius: 0;
   background: #000;
 }
 
+.app-shell:has(.mv-layer.is-fullscreen),
+.app-shell:has(.mv-layer:fullscreen),
+.app-shell:has(.mv-layer:-webkit-full-screen) {
+  max-width: none;
+  border-radius: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 .mv-layer:fullscreen .mv-stage,
 .mv-layer:-webkit-full-screen .mv-stage,
-.mv-layer.is-fullscreen .mv-stage,
-.mv-layer:fullscreen .mv-stage video,
-.mv-layer:-webkit-full-screen .mv-stage video,
-.mv-layer.is-fullscreen .mv-stage video {
+.mv-layer.is-fullscreen .mv-stage {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  max-width: none;
-  max-height: none;
-}
-
-.mv-layer:fullscreen .mv-stage video,
-.mv-layer:-webkit-full-screen .mv-stage video,
-.mv-layer.is-fullscreen .mv-stage video {
-  object-fit: contain;
-  object-position: center center;
 }
 
 .mv-bar {
@@ -1862,15 +1898,9 @@ img {
   transform: translateX(18px);
 }
 
-.danmaku-switch.is-compact {
-  padding: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
 .danmaku-layer {
   position: relative;
-  height: 84px;
+  height: 54px;
   flex: none;
   overflow: hidden;
   pointer-events: none;
@@ -1879,10 +1909,10 @@ img {
 
 .mv-stage .danmaku-layer {
   position: absolute;
-  left: 12px;
-  right: 12px;
-  top: calc(78px + env(safe-area-inset-top, 0px));
-  height: 84px;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  height: 54px;
 }
 
 .danmaku-item {
@@ -2009,16 +2039,64 @@ img {
   font-size: 0.86rem;
 }
 
-.comment-meta span,
-.comment-like {
+.comment-meta span {
   flex: none;
   color: var(--muted);
   font-size: 0.75rem;
 }
 
-.comment-like {
-  display: block;
-  margin-top: 4px;
+.chip-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  line-height: 1.15;
+}
+
+.chip-count {
+  color: var(--teal-deep);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.action-chip.comment.on .chip-count {
+  color: inherit;
+}
+
+.comment-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.comment-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.comment-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(11, 31, 36, 0.05);
+}
+
+.comment-replies .comment-replies {
+  margin-left: 8px;
+  background: rgba(11, 31, 36, 0.04);
+}
+
+.comment-replies strong {
+  font-size: 0.8rem;
 }
 
 .comment-list p {

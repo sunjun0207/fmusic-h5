@@ -483,17 +483,31 @@ function commentAvatar(url: string): string {
   }
 }
 
-function mapComment(raw: Record<string, unknown>, index: number): SongComment | null {
+function commentNodes(raw: unknown): Record<string, unknown>[] {
+  if (Array.isArray(raw)) return raw.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+  if (raw && typeof raw === 'object') return [raw as Record<string, unknown>]
+  return []
+}
+
+function mapComment(raw: Record<string, unknown>, index: number, seen = new Set<string>()): SongComment | null {
   const text = cleanText(String(raw.msg ?? '')).replace(/\s+/g, ' ').trim()
   if (!text) return null
-  return {
-    id: String(raw.id ?? `${index}-${text.slice(0, 12)}`),
+  const id = String(raw.id ?? `${index}-${text.slice(0, 12)}`)
+  const comment: SongComment = {
+    id,
     name: cleanText(String(raw.u_name ?? '')) || '听众',
     avatar: commentAvatar(String(raw.u_pic ?? '')),
     text,
     time: String(raw.time ?? ''),
     likes: Number(raw.like_num) || 0,
+    replies: [],
   }
+  if (seen.has(id)) return comment
+  seen.add(id)
+  comment.replies = commentNodes(raw.reply)
+    .map((item, replyIndex) => mapComment(item, replyIndex, seen))
+    .filter((item): item is SongComment => !!item)
+  return comment
 }
 
 export async function getComments(
@@ -517,7 +531,9 @@ export async function getComments(
   const res = await fetch(`/api-fmusic-pomelo7-server/kw-comment/com.s?${qs}`)
   if (!res.ok) throw new Error('评论加载失败')
   const data = (await res.json()) as { rows?: Array<Record<string, unknown>>; total?: string | number }
-  const list = (data.rows ?? []).map(mapComment).filter((item): item is SongComment => !!item)
+  const list = (data.rows ?? [])
+    .map((item, index) => mapComment(item, index))
+    .filter((item): item is SongComment => !!item)
   return { list, total: Number(data.total) || list.length }
 }
 

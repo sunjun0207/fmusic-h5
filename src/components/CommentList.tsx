@@ -1,4 +1,3 @@
-import { DanmakuSwitch } from './DanmakuSwitch'
 import type { SongComment } from '../lib/types'
 
 type Props = {
@@ -9,6 +8,51 @@ type Props = {
   onMore: () => void
 }
 
+function HeartIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M12 19.2s-6.2-3.9-6.2-8.4C5.8 8.2 7.6 6.6 9.8 6.6c1.2 0 2.3.6 3.2 1.6.9-1 2-1.6 3.2-1.6 2.2 0 4 1.6 4 4.2 0 4.5-6.2 8.4-6.2 8.4Z" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ReplyIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M7 16.2 4.6 19v-3.1A6.8 6.8 0 1 1 12 18.2 6.7 6.7 0 0 1 7 16.2Z" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function CommentThread({ comment }: { comment: SongComment }) {
+  return (
+    <div className="comment-thread">
+      <div className="comment-meta">
+        <strong>{comment.name}</strong>
+        <span>{comment.time.slice(0, 16)}</span>
+      </div>
+      <p>{comment.text}</p>
+      <div className="comment-stats">
+        <span className="comment-stat">
+          <HeartIcon />
+          {comment.likes}
+        </span>
+        <span className="comment-stat">
+          <ReplyIcon />
+          {comment.replies.length}
+        </span>
+      </div>
+      {comment.replies.length ? (
+        <div className="comment-replies">
+          {comment.replies.map((reply) => (
+            <CommentThread key={reply.id} comment={reply} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function CommentList({ comments, total, status, loadingMore, onMore }: Props) {
   return (
     <section className="comment-panel" aria-label="歌曲评论">
@@ -17,7 +61,6 @@ export function CommentList({ comments, total, status, loadingMore, onMore }: Pr
           <strong>评论</strong>
           {total > 0 ? <span>{total}</span> : null}
         </div>
-        <DanmakuSwitch />
       </div>
       {status === 'loading' ? <p className="comment-note">评论加载中…</p> : null}
       {status === 'error' ? <p className="comment-note">评论暂时没有加载出来</p> : null}
@@ -26,14 +69,7 @@ export function CommentList({ comments, total, status, loadingMore, onMore }: Pr
         {comments.map((comment) => (
           <li key={comment.id}>
             {comment.avatar ? <img src={comment.avatar} alt="" /> : <span className="comment-avatar" />}
-            <div>
-              <div className="comment-meta">
-                <strong>{comment.name}</strong>
-                <span>{comment.time.slice(0, 16)}</span>
-              </div>
-              <p>{comment.text}</p>
-              {comment.likes > 0 ? <span className="comment-like">{comment.likes} 赞</span> : null}
-            </div>
+            <CommentThread comment={comment} />
           </li>
         ))}
       </ul>

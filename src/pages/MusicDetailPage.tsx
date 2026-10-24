@@ -52,6 +52,14 @@ function fmt(sec: number) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+function formatCount(count: number) {
+  if (!Number.isFinite(count) || count <= 0) return '0'
+  if (count < 10000) return String(count)
+  const wan = count / 10000
+  const text = wan >= 10 ? String(Math.round(wan)) : wan.toFixed(1).replace(/\.0$/, '')
+  return `${text}万`
+}
+
 type Props = {
   music: MusicItem
   playing: boolean
@@ -107,7 +115,9 @@ export function MusicDetailPage({
   const [commentPage, setCommentPage] = useState(1)
   const [commentStatus, setCommentStatus] = useState<'loading' | 'ready' | 'empty' | 'error'>('loading')
   const [commentMore, setCommentMore] = useState(false)
+  const [commentsOpen, setCommentsOpen] = useState(false)
   const [danmakuOn] = useDanmakuSetting()
+  const commentPanelRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef({ x: 0, y: 0, dx: 0, active: false })
   const swipedRef = useRef(false)
   const draggingRef = useRef(false)
@@ -136,6 +146,15 @@ export function MusicDetailPage({
       cancel = true
     }
   }, [music.id])
+
+  useEffect(() => {
+    setCommentsOpen(false)
+  }, [music.id])
+
+  useEffect(() => {
+    if (!commentsOpen) return
+    commentPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [commentsOpen])
 
   const loadMoreComments = async () => {
     if (commentMore || comments.length >= commentTotal) return
@@ -267,6 +286,18 @@ export function MusicDetailPage({
     setLyricOpen((open) => {
       const next = !open
       saveShowLyric(next)
+      if (next) setCommentsOpen(false)
+      return next
+    })
+  }
+
+  const toggleComments = () => {
+    setCommentsOpen((open) => {
+      const next = !open
+      if (next) {
+        setLyricOpen(false)
+        saveShowLyric(false)
+      }
       return next
     })
   }
@@ -329,6 +360,9 @@ export function MusicDetailPage({
             </div>
             <DanmakuSwitch light />
           </header>
+          <div className="lyric-poster">
+            {src ? <img src={src} alt="" /> : <span />}
+          </div>
           <DanmakuLayer comments={comments} enabled={danmakuOn} />
           <div className="lyric-body">
             <LyricView lines={lyrics} status={lyricStatus} current={currentTime} onSeek={playAt} />
@@ -444,6 +478,25 @@ export function MusicDetailPage({
         ) : music.hasMv === false ? (
           <span className="action-chip is-static">暂无MV</span>
         ) : null}
+        <button
+          type="button"
+          className={`action-chip comment${commentsOpen ? ' on' : ''}`}
+          aria-pressed={commentsOpen}
+          aria-label={
+            commentStatus === 'loading'
+              ? '查看评论'
+              : `${commentsOpen ? '收起评论' : '查看评论'}，共 ${formatCount(commentTotal)} 条`
+          }
+          onClick={toggleComments}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M7.2 17.2 4.6 20v-3.2A7.6 7.6 0 1 1 12 19.2a7.5 7.5 0 0 1-4.8-2Z" strokeLinejoin="round" />
+          </svg>
+          <span className="chip-copy">
+            <span>{commentsOpen ? '收起' : '评论'}</span>
+            {commentStatus !== 'loading' ? <i className="chip-count">{formatCount(commentTotal)}</i> : null}
+          </span>
+        </button>
         <button type="button" className="action-chip download" onClick={() => setSheetOpen(true)}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M12 4v11" strokeLinecap="round" />
@@ -526,15 +579,17 @@ export function MusicDetailPage({
 
       {msg ? <div className="empty" style={{ padding: 8 }}>{msg}</div> : null}
 
-      {lyricOpen ? null : (
-        <CommentList
-          comments={comments}
-          total={commentTotal}
-          status={commentStatus}
-          loadingMore={commentMore}
-          onMore={() => void loadMoreComments()}
-        />
-      )}
+      {commentsOpen && !lyricOpen ? (
+        <div ref={commentPanelRef}>
+          <CommentList
+            comments={comments}
+            total={commentTotal}
+            status={commentStatus}
+            loadingMore={commentMore}
+            onMore={() => void loadMoreComments()}
+          />
+        </div>
+      ) : null}
 
       <DownloadSheet
         open={sheetOpen}

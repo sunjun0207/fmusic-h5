@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { SongComment } from '../lib/types'
 
 type Fly = {
@@ -26,7 +26,15 @@ function linesOf(comments: SongComment[]): string[] {
   return lines
 }
 
-export function DanmakuLayer({ comments, enabled }: { comments: SongComment[]; enabled: boolean }) {
+export function DanmakuLayer({
+  comments,
+  enabled,
+  style,
+}: {
+  comments: SongComment[]
+  enabled: boolean
+  style?: CSSProperties
+}) {
   const [flying, setFlying] = useState<Fly[]>([])
   const layerRef = useRef<HTMLDivElement>(null)
   const textsRef = useRef<string[]>([])
@@ -81,13 +89,13 @@ export function DanmakuLayer({ comments, enabled }: { comments: SongComment[]; e
   if (!enabled || !hasText) return null
 
   return (
-    <div ref={layerRef} className="danmaku-layer" aria-hidden="true">
+    <div ref={layerRef} className="danmaku-layer" style={style} aria-hidden="true">
       {flying.map((item) => (
         <span
           key={item.id}
           className={`danmaku-item tone-${item.tone}`}
           style={{
-            top: `${6 + item.lane * 38}px`,
+            top: `${2 + item.lane * 26}px`,
             animationDuration: `${item.duration}s`,
             ['--travel' as string]: `${item.travel}px`,
           }}

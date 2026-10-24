@@ -69,6 +69,7 @@ export type SongComment = {
   text: string
   time: string
   likes: number
+  replies: SongComment[]
 }
 
 export type PlayMode = 'list' | 'single' | 'shuffle'

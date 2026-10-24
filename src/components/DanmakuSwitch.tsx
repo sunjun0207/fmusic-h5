@@ -21,12 +21,12 @@ export function useDanmakuSetting() {
   return [on, set] as const
 }
 
-export function DanmakuSwitch({ light = false, compact = false }: { light?: boolean; compact?: boolean }) {
+export function DanmakuSwitch({ light = false }: { light?: boolean }) {
   const [on, setOn] = useDanmakuSetting()
   return (
     <button
       type="button"
-      className={`danmaku-switch${on ? ' is-on' : ''}${light ? ' is-light' : ''}${compact ? ' is-compact' : ''}`}
+      className={`danmaku-switch${on ? ' is-on' : ''}${light ? ' is-light' : ''}`}
       role="switch"
       aria-checked={on}
       aria-label={on ? '关闭弹幕' : '打开弹幕'}
@@ -35,7 +35,7 @@ export function DanmakuSwitch({ light = false, compact = false }: { light?: bool
         setOn(!on)
       }}
     >
-      {compact ? null : <span>弹幕</span>}
+      <span>弹幕</span>
       <span className="danmaku-switch-track" aria-hidden="true">
         <span className="danmaku-switch-thumb" />
       </span>

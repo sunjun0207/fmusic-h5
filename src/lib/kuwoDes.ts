@@ -243,10 +243,11 @@ export const buildNmobiPath = (rid: string, format = 'mp3', br = '320kmp3'): str
   return `/proxy/kw-nmobi/mobi.s?f=kuwo&q=${encodeURIComponent(q)}`
 }
 
-export const buildMvPlain = (rid: string): string =>
-  `user=0&corp=kuwo&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk&p2p=1&type=convert_mv_url2&sig=0&format=mp4&rid=${rid}`
+/** 酷我只认 quality=。不带时固定回落到约 512kbps 的 MP4。 */
+export const buildMvPlain = (rid: string, quality = 'MP4UL'): string =>
+  `user=0&corp=kuwo&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk&p2p=1&type=convert_mv_url2&sig=0&format=mp4&rid=${rid}&quality=${quality}`
 
-export const buildMvNmobiPath = (rid: string): string => {
-  const q = encryptQuery(buildMvPlain(rid))
+export const buildMvNmobiPath = (rid: string, quality = 'MP4UL'): string => {
+  const q = encryptQuery(buildMvPlain(rid, quality))
   return `/proxy/kw-nmobi/mobi.s?f=kuwo&q=${encodeURIComponent(q)}`
 }

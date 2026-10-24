@@ -22,6 +22,7 @@ import {
   getSettings,
   rememberMusicMv,
   savePlayMode,
+  saveSettings,
 } from './lib/storage'
 import type { MusicItem, PlayMode, TabId, UpdateInfo } from './lib/types'
 import { DownloadPage } from './pages/DownloadPage'
@@ -46,6 +47,7 @@ export default function App() {
   const [mvVersion, setMvVersion] = useState(0)
   const [mvMusic, setMvMusic] = useState<MusicItem | null>(null)
   const [mvUrl, setMvUrl] = useState('')
+  const [mvQuality, setMvQuality] = useState(() => getSettings().mvQuality)
   const [mvLoading, setMvLoading] = useState(false)
   const [mvError, setMvError] = useState('')
   const [noMvStamp, setNoMvStamp] = useState<{ id: string; token: number } | null>(null)
@@ -61,6 +63,7 @@ export default function App() {
   const playModeRef = useRef<PlayMode>(playMode)
   const playHistoryRef = useRef<string[]>([])
   const mvToken = useRef(0)
+  const mvRequest = useRef(0)
   const mvActiveRef = useRef(false)
   const mvMusicRef = useRef<MusicItem | null>(null)
   const resumeAudioRef = useRef(false)
@@ -302,13 +305,17 @@ export default function App() {
     setMvMusic(music)
     setMvUrl('')
     setMvLoading(true)
+    const quality = getSettings().mvQuality
+    setMvQuality(quality)
+    const request = ++mvRequest.current
     try {
-      const url = await getMvUrl(music.id)
-      if (token !== mvToken.current) return
+      const source = await getMvUrl(music.id, quality)
+      if (token !== mvToken.current || request !== mvRequest.current) return
       holdSong()
-      setMvUrl(url)
+      setMvUrl(source.url)
+      setMvQuality(source.quality || quality)
     } catch (error) {
-      if (token !== mvToken.current) return
+      if (token !== mvToken.current || request !== mvRequest.current) return
       mvActiveRef.current = false
       setMvMusic(null)
       setMvUrl('')
@@ -327,9 +334,31 @@ export default function App() {
       resumeAudioRef.current = false
       releaseSong(shouldResume)
     } finally {
-      if (token === mvToken.current) setMvLoading(false)
+      if (token === mvToken.current && request === mvRequest.current) setMvLoading(false)
     }
   }, [holdSong, releaseSong, rememberSearchScroll])
+
+  const changeMvQuality = useCallback(async (quality: string) => {
+    const music = mvMusicRef.current
+    if (!music) return
+    saveSettings({ mvQuality: quality })
+    setMvError('')
+    setMvQuality(quality)
+    const token = mvToken.current
+    const request = ++mvRequest.current
+    setMvLoading(true)
+    try {
+      const source = await getMvUrl(music.id, quality)
+      if (token !== mvToken.current || request !== mvRequest.current) return
+      setMvUrl(source.url)
+      setMvQuality(source.quality || quality)
+    } catch (error) {
+      if (token !== mvToken.current || request !== mvRequest.current) return
+      setMvError(error instanceof Error ? error.message : '切换画质失败')
+    } finally {
+      if (token === mvToken.current && request === mvRequest.current) setMvLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     const syncDownload = () => {
@@ -647,7 +676,16 @@ export default function App() {
           void playMv(item)
         }}
       />
-      {mvMusic ? <MvPlayer music={mvMusic} url={mvUrl} loading={mvLoading} onClose={() => closeMv()} /> : null}
+      {mvMusic ? (
+        <MvPlayer
+          music={mvMusic}
+          url={mvUrl}
+          quality={mvQuality}
+          loading={mvLoading}
+          onClose={() => closeMv()}
+          onQuality={(quality) => void changeMvQuality(quality)}
+        />
+      ) : null}
       {mvError ? <div className="mv-toast">{mvError}</div> : null}
       <DownloadGuide
         pending={dlGuideHidden ? null : pendingDl}

@@ -3,6 +3,7 @@ import { APP_VERSION } from '../lib/api'
 import { getSettings, saveSettings } from '../lib/storage'
 import type { AppSettings } from '../lib/types'
 import { QUALITY_OPTIONS } from '../components/DownloadSheet'
+import { MV_QUALITIES, POSTER_OPTIONS } from '../lib/quality'
 
 export function SettingPage() {
   const [settings, setSettings] = useState<AppSettings>(() => getSettings())
@@ -28,6 +29,38 @@ export function SettingPage() {
             {QUALITY_OPTIONS.map((q) => (
               <option key={q.id} value={q.id}>
                 {q.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="setting-row">
+          <div>
+            <div>海报清晰度</div>
+            <div className="song-sub">歌曲详情里的封面和歌手图</div>
+          </div>
+          <select
+            value={String(settings.posterSize)}
+            onChange={(e) => patch({ posterSize: Number(e.target.value) })}
+          >
+            {POSTER_OPTIONS.map((item) => (
+              <option key={item.size} value={item.size}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="setting-row">
+          <div>
+            <div>MV 清晰度</div>
+            <div className="song-sub">播放 MV 时的清晰度，也可在播放器里改</div>
+          </div>
+          <select
+            value={settings.mvQuality}
+            onChange={(e) => patch({ mvQuality: e.target.value })}
+          >
+            {MV_QUALITIES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
               </option>
             ))}
           </select>

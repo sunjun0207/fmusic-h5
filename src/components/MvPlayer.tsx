@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { coverUrl, postDownload, toProxyAudioUrl } from '../lib/api'
 import { formatBytes, requestDownload, trackFilename } from '../lib/download'
+import { MV_QUALITIES, visibleMvQuality } from '../lib/quality'
 import { upsertDownload } from '../lib/storage'
 import type { DownloadTask, MusicItem } from '../lib/types'
 
@@ -14,8 +15,10 @@ function fmt(sec: number) {
 type Props = {
   music: MusicItem
   url: string
+  quality: string
   loading: boolean
   onClose: () => void
+  onQuality: (quality: string) => void
 }
 
 type IOSVideo = HTMLVideoElement & {
@@ -24,9 +27,10 @@ type IOSVideo = HTMLVideoElement & {
   webkitDisplayingFullscreen?: boolean
 }
 
-export function MvPlayer({ music, url, loading, onClose }: Props) {
+export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: Props) {
   const layerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const resumeAt = useRef(0)
   const [paused, setPaused] = useState(true)
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -52,15 +56,26 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
   useEffect(() => {
     const video = videoRef.current
     if (!video || !url) return
+    const start = resumeAt.current
+    resumeAt.current = 0
     setPaused(true)
-    setCurrent(0)
-    setDuration(0)
+    setCurrent(start)
+    if (start <= 0) setDuration(0)
+    const seek = () => {
+      if (start > 0.3 && Number.isFinite(video.duration) && start < video.duration - 0.3) {
+        video.currentTime = start
+        setCurrent(start)
+      }
+    }
+    if (video.readyState >= 1) seek()
+    else video.addEventListener('loadedmetadata', seek)
     void video.play().catch(() => setPaused(true))
     const onBegin = () => setFullscreen(true)
     const onEnd = () => setFullscreen(false)
     video.addEventListener('webkitbeginfullscreen', onBegin)
     video.addEventListener('webkitendfullscreen', onEnd)
     return () => {
+      video.removeEventListener('loadedmetadata', seek)
       video.removeEventListener('webkitbeginfullscreen', onBegin)
       video.removeEventListener('webkitendfullscreen', onEnd)
     }
@@ -133,15 +148,23 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
       aria-label={`${music.title} MV`}
     >
       <header className="mv-chrome mv-head">
-        <button type="button" className="mv-close" onClick={onClose} aria-label="关闭">
-          关闭
+        <button type="button" className="mv-pill" onClick={onClose} aria-label="关闭">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+            <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
+          </svg>
+          <span>关闭</span>
         </button>
         <div className="mv-heading">
           <strong>{music.title}</strong>
           <span>{music.artist} · MV</span>
         </div>
-        <button type="button" className="mv-close" onClick={() => void download()} disabled={!url || saving || loading}>
-          {saving ? '下载中' : '下载'}
+        <button type="button" className="mv-pill" onClick={() => void download()} disabled={!url || saving || loading} aria-label="下载">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            <path d="M12 4v11" strokeLinecap="round" />
+            <path d="m7.5 11.5 4.5 4.5 4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M5 20h14" strokeLinecap="round" />
+          </svg>
+          <span>{saving ? '下载中' : '下载'}</span>
         </button>
       </header>
 
@@ -165,6 +188,7 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
       </div>
 
       <div className="mv-chrome mv-bar">
+        <div className="mv-progress">
         <button type="button" className="mv-toggle" onClick={toggle} disabled={!url} aria-label={paused ? '播放' : '暂停'}>
           {paused ? (
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -193,12 +217,55 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
             setCurrent(next)
           }}
         />
-        <button type="button" className="mv-full" onClick={() => void toggleFullscreen()} disabled={!url}>
-          {fullscreen ? '退出全屏' : '全屏'}
-        </button>
         <span className="mv-time">
           {fmt(current)} / {fmt(duration)}
         </span>
+        </div>
+        <div className="mv-actions">
+        <label className="mv-pill mv-quality">
+          <span>清晰度</span>
+          <select
+            aria-label="清晰度"
+            value={visibleMvQuality(quality)}
+            disabled={loading}
+            onChange={(event) => {
+              const next = event.target.value
+              if (next === quality) return
+              resumeAt.current = videoRef.current?.currentTime || 0
+              onQuality(next)
+            }}
+          >
+            {MV_QUALITIES.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className={`mv-round mv-full${fullscreen ? ' is-on' : ''}`}
+          onClick={() => void toggleFullscreen()}
+          disabled={!url}
+          aria-label={fullscreen ? '退出全屏' : '全屏'}
+        >
+          {fullscreen ? (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M9 4v4a1 1 0 0 1-1 1H4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M15 4v4a1 1 0 0 0 1 1h4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M9 20v-4a1 1 0 0 0-1-1H4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M15 20v-4a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          ) : (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+              <path d="M8 4H5a1 1 0 0 0-1 1v3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M16 4h3a1 1 0 0 1 1 1v3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M20 16v3a1 1 0 0 1-1 1h-3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M4 16v3a1 1 0 0 0 1 1h3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          )}
+        </button>
+        </div>
       </div>
       {message ? <p className="mv-chrome mv-message">{message}</p> : null}
     </div>

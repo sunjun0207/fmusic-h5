@@ -1,3 +1,5 @@
+import { isPosterSize, visibleMvQuality } from './quality'
+import { cleanArtist, cleanText, normalizeMusic } from './text'
 import type { AppSettings, DownloadTask, MusicItem, PlayMode } from './types'
 
 const KEYS = {
@@ -59,7 +61,11 @@ export function clearSearchHistory() {
 }
 
 export function getDownloads(): DownloadTask[] {
-  return readJson<DownloadTask[]>(KEYS.downloads, [])
+  return readJson<DownloadTask[]>(KEYS.downloads, []).map((task) => ({
+    ...task,
+    title: cleanText(task.title),
+    artist: cleanArtist(task.artist),
+  }))
 }
 
 export function saveDownloads(tasks: DownloadTask[]) {
@@ -78,11 +84,19 @@ export function removeDownload(id: string) {
 
 const defaultSettings: AppSettings = {
   quality: '320kmp3',
+  posterSize: 1000,
+  mvQuality: 'MP4UL',
   showNotification: true,
 }
 
 export function getSettings(): AppSettings {
-  return { ...defaultSettings, ...readJson<Partial<AppSettings>>(KEYS.settings, {}) }
+  const raw = { ...defaultSettings, ...readJson<Partial<AppSettings>>(KEYS.settings, {}) }
+  const posterSize = Number(raw.posterSize)
+  return {
+    ...raw,
+    posterSize: isPosterSize(posterSize) ? posterSize : defaultSettings.posterSize,
+    mvQuality: visibleMvQuality(raw.mvQuality),
+  }
 }
 
 export function saveSettings(patch: Partial<AppSettings>) {
@@ -107,18 +121,19 @@ function keepMv(prev: MusicItem | undefined, item: MusicItem): MusicItem {
 }
 
 export function getRecentPlays(): MusicItem[] {
-  return readJson<MusicItem[]>(KEYS.recentPlays, [])
+  return readJson<MusicItem[]>(KEYS.recentPlays, []).map(normalizeMusic)
 }
 
 export function addRecentPlay(item: MusicItem) {
+  const clean = normalizeMusic(item)
   const list = getRecentPlays()
-  const prev = list.find((song) => song.id === item.id)
-  const next = keepMv(prev, item)
-  writeJson(KEYS.recentPlays, [next, ...list.filter((song) => song.id !== item.id)].slice(0, 40))
+  const prev = list.find((song) => song.id === clean.id)
+  const next = keepMv(prev, clean)
+  writeJson(KEYS.recentPlays, [next, ...list.filter((song) => song.id !== clean.id)].slice(0, 40))
 }
 
 export function getFavorites(): MusicItem[] {
-  return readJson<MusicItem[]>(KEYS.favorites, [])
+  return readJson<MusicItem[]>(KEYS.favorites, []).map(normalizeMusic)
 }
 
 export function isFavorite(id: string): boolean {
@@ -126,17 +141,18 @@ export function isFavorite(id: string): boolean {
 }
 
 export function toggleFavorite(item: MusicItem): boolean {
+  const clean = normalizeMusic(item)
   const list = getFavorites()
-  const exists = list.some((x) => x.id === item.id)
+  const exists = list.some((x) => x.id === clean.id)
   if (exists) {
     writeJson(
       KEYS.favorites,
-      list.filter((x) => x.id !== item.id),
+      list.filter((x) => x.id !== clean.id),
     )
     return false
   }
-  const prev = list.find((song) => song.id === item.id) ?? getRecentPlays().find((song) => song.id === item.id)
-  writeJson(KEYS.favorites, [keepMv(prev, item), ...list].slice(0, 200))
+  const prev = list.find((song) => song.id === clean.id) ?? getRecentPlays().find((song) => song.id === clean.id)
+  writeJson(KEYS.favorites, [keepMv(prev, clean), ...list].slice(0, 200))
   return true
 }
 

@@ -1,4 +1,6 @@
 import { buildMvNmobiPath, buildNmobiPath } from './kuwoDes'
+import { isMvQuality, mvFallback, visibleMvQuality } from './quality'
+import { cleanArtist, cleanText } from './text'
 import type {
   DownloadTask,
   LyricLine,
@@ -7,7 +9,7 @@ import type {
   PlayMeta,
   UpdateInfo,
 } from './types'
-import { getUid } from './storage'
+import { getSettings, getUid } from './storage'
 
 const APP_VERSION = '1.0.10'
 
@@ -21,53 +23,6 @@ function pick<T>(obj: Record<string, unknown>, ...keys: string[]): T | undefined
 function parseDuration(v: unknown): number {
   const n = Number(v)
   return Number.isFinite(n) ? n : 0
-}
-
-const NAMED_ENTITIES: Record<string, string> = {
-  nbsp: ' ',
-  amp: '&',
-  lt: '<',
-  gt: '>',
-  quot: '"',
-  apos: "'",
-  middot: '·',
-  mdash: '—',
-  ndash: '–',
-  hellip: '…',
-  lsquo: '‘',
-  rsquo: '’',
-  ldquo: '“',
-  rdquo: '”',
-}
-
-/** 酷我搜索和歌词里常留下 &apos;、&nbsp;、&#183; 或字面量 \\uXXXX。 */
-export function cleanText(input: string): string {
-  let text = input.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
-    String.fromCharCode(Number.parseInt(hex, 16)),
-  )
-  if (/%(?:u[0-9a-fA-F]{4}|[0-9a-fA-F]{2})/.test(text)) {
-    try {
-      text = decodeURIComponent(text.replace(/%u([0-9a-fA-F]{4})/g, (_, hex: string) =>
-        `%${hex.slice(0, 2)}%${hex.slice(2)}`,
-      ))
-    } catch {
-      /* keep the original text */
-    }
-  }
-  text = text.replace(/<[^>]+>/g, '')
-  const codePoint = (value: number) => {
-    if (!Number.isInteger(value) || value < 0 || value > 0x10ffff) return ''
-    return String.fromCodePoint(value)
-  }
-  for (let i = 0; i < 3; i += 1) {
-    const next = text
-      .replace(/&#(\d+);/g, (_, num: string) => codePoint(Number(num)))
-      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => codePoint(Number.parseInt(hex, 16)))
-      .replace(/&([a-zA-Z]+);/g, (all, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? all)
-    if (next === text) break
-    text = next
-  }
-  return text.replace(/\u00a0/g, ' ').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim()
 }
 
 function mvPicture(raw: Record<string, unknown>) {
@@ -89,7 +44,7 @@ function mapSearchItem(raw: Record<string, unknown>): MusicItem | null {
   const id = String(pick(raw, 'DC_TARGETID', 'musicId', 'MUSICRID') ?? '').replace(/^MUSIC_/, '')
   if (!id) return null
   const title = cleanText(String(pick(raw, 'SONGNAME', 'songName', 'NAME') ?? '')) || '未知歌曲'
-  const artist = cleanText(String(pick(raw, 'ARTIST', 'artist', 'ARTISTNAME') ?? '')) || '未知歌手'
+  const artist = cleanArtist(String(pick(raw, 'ARTIST', 'artist', 'ARTISTNAME') ?? '')) || '未知歌手'
   const album = cleanText(String(pick(raw, 'ALBUM', 'album') ?? ''))
   const albumId = String(pick(raw, 'ALBUMID', 'albumId') ?? '')
   const duration = parseDuration(pick(raw, 'DURATION', 'duration'))
@@ -112,7 +67,14 @@ function mapSearchItem(raw: Record<string, unknown>): MusicItem | null {
   }
 }
 
-export function coverUrl(path?: string): string {
+const IMAGE_LADDER = [1000, 700, 500, 300, 120]
+
+function resizeKuwoImage(url: string, size?: number): string {
+  if (!url || !size) return url
+  return url.replace(/(\/(?:albumcover|starheads)\/)\d+\//, `$1${size}/`)
+}
+
+export function coverUrl(path?: string, size?: number): string {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) {
     try {
@@ -122,7 +84,7 @@ export function coverUrl(path?: string): string {
           u.protocol = 'https:'
           return u.toString()
         }
-        return `/proxy/kw-img${u.pathname}${u.search}`
+        return resizeKuwoImage(`/proxy/kw-img${u.pathname}${u.search}`, size)
       }
     } catch {
       /* ignore */
@@ -131,23 +93,33 @@ export function coverUrl(path?: string): string {
   }
   const cleaned = path.replace(/^\/+/, '')
   if (cleaned.startsWith('star/albumcover/')) {
-    return `/proxy/kw-img/${cleaned}`
+    return resizeKuwoImage(`/proxy/kw-img/${cleaned}`, size)
   }
-  return `/proxy/kw-img/star/albumcover/${cleaned}`
+  return resizeKuwoImage(`/proxy/kw-img/star/albumcover/${cleaned}`, size)
 }
 
-/** 歌手图在 starheads，和专辑封面不是同一目录。 */
-export function artistUrl(path?: string): string {
+/** 歌手图在 starheads，和专辑封面不是同一目录。现图最大约 500。 */
+export function artistUrl(path?: string, size?: number): string {
+  const capped = size ? Math.min(size, 500) : undefined
   if (!path) return ''
-  if (path.startsWith('http://') || path.startsWith('https://')) return coverUrl(path)
+  if (path.startsWith('http://') || path.startsWith('https://')) return coverUrl(path, capped)
   const cleaned = path.replace(/^\/+/, '')
-  if (cleaned.startsWith('star/')) return `/proxy/kw-img/${cleaned}`
-  return `/proxy/kw-img/star/starheads/${cleaned}`
+  if (cleaned.startsWith('star/')) return resizeKuwoImage(`/proxy/kw-img/${cleaned}`, capped)
+  return resizeKuwoImage(`/proxy/kw-img/star/starheads/${cleaned}`, capped)
 }
 
-export function posterList(item: { image?: string; artistImage?: string }): string[] {
-  const list = [coverUrl(item.image), artistUrl(item.artistImage)].filter(Boolean)
+export function posterList(item: { image?: string; artistImage?: string }, size = 1000): string[] {
+  const list = [coverUrl(item.image, size), artistUrl(item.artistImage, size)].filter(Boolean)
   return [...new Set(list)]
+}
+
+/** 大图 404 时换成下一档，直到 120。 */
+export function smallerImageUrl(url: string): string {
+  const matched = url.match(/(\/(?:albumcover|starheads)\/)(\d+)(\/)/)
+  if (!matched) return url
+  const next = IMAGE_LADDER.find((size) => size < Number(matched[2]))
+  if (!next) return url
+  return url.replace(matched[0], `${matched[1]}${next}${matched[3]}`)
 }
 
 const KUWO_AUDIO_HOST = /^kw-[a-z0-9-]+\.kuwo\.cn$/i
@@ -326,25 +298,42 @@ export async function getPlayMeta(rid: string, br = '320kmp3'): Promise<PlayMeta
   }
 }
 
-const mvCache = new Map<string, Promise<string>>()
+export type MvSource = {
+  url: string
+  quality: string
+}
 
-export function getMvUrl(rid: string): Promise<string> {
-  const cached = mvCache.get(rid)
+const mvCache = new Map<string, Promise<MvSource>>()
+
+export function getMvUrl(rid: string, quality?: string): Promise<MvSource> {
+  const picked = quality && isMvQuality(quality) ? quality : getSettings().mvQuality
+  const key = `${rid}:${picked}`
+  const cached = mvCache.get(key)
   if (cached) return cached
-  const job = fetchMvUrl(rid).catch((error: unknown) => {
-    mvCache.delete(rid)
+  const job = fetchMvUrl(rid, picked).catch((error: unknown) => {
+    mvCache.delete(key)
     throw error
   })
-  mvCache.set(rid, job)
+  mvCache.set(key, job)
   return job
 }
 
-async function fetchMvUrl(rid: string): Promise<string> {
-  const res = await fetch(buildMvNmobiPath(rid))
-  if (!res.ok) throw new Error('MV 地址获取失败')
-  const map = parseKv(await res.text())
-  if (!map.url) throw new Error('这首歌暂时没有可播放的 MV')
-  return rewriteAudioUrl(map.url)
+async function fetchMvUrl(rid: string, quality: string): Promise<MvSource> {
+  for (const item of mvFallback(quality)) {
+    try {
+      const res = await fetch(buildMvNmobiPath(rid, item))
+      if (!res.ok) continue
+      const map = parseKv(await res.text())
+      if (!map.url) continue
+      return {
+        url: rewriteAudioUrl(map.url),
+        quality: visibleMvQuality(isMvQuality(map.quality) ? map.quality : item),
+      }
+    } catch {
+      /* try the next lower quality */
+    }
+  }
+  throw new Error('这首歌暂时没有可播放的 MV')
 }
 
 export async function getUpdate(): Promise<UpdateInfo | null> {
@@ -418,4 +407,4 @@ export async function postDownload(task: Pick<DownloadTask, 'mid' | 'title' | 'a
   }
 }
 
-export { APP_VERSION }
+export { APP_VERSION, cleanText }

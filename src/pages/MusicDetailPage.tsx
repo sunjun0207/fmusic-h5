@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { coverUrl, getLyric, getMvUrl, getPlayMeta, postDownload, posterList, toProxyAudioUrl } from '../lib/api'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { coverUrl, getLyric, getMvUrl, getPlayMeta, postDownload, posterList, smallerImageUrl, toProxyAudioUrl } from '../lib/api'
 import { formatBytes, requestDownload, trackExt, trackFilename } from '../lib/download'
 import { PLAY_MODE_LABEL } from '../lib/playback'
 import { getSettings, getShowLyric, isFavorite, saveShowLyric, toggleFavorite, upsertDownload } from '../lib/storage'
@@ -94,23 +94,37 @@ export function MusicDetailPage({
   const [msg, setMsg] = useState('')
   const [fav, setFav] = useState(() => isFavorite(music.id))
   const [posterIndex, setPosterIndex] = useState(0)
+  const [posterClock, setPosterClock] = useState(0)
   const [brokenPosters, setBrokenPosters] = useState<string[]>([])
+  const [posterSrc, setPosterSrc] = useState<Record<string, string>>({})
+  const [dragX, setDragX] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const dragRef = useRef({ x: 0, y: 0, dx: 0, active: false })
+  const swipedRef = useRef(false)
+  const draggingRef = useRef(false)
+  const posterSrcRef = useRef(posterSrc)
+  posterSrcRef.current = posterSrc
   const settings = getSettings()
-  const posters = posterList(music).filter((src) => !brokenPosters.includes(src))
+  const posters = posterList(music, settings.posterSize).filter((src) => !brokenPosters.includes(src))
 
   useEffect(() => {
     setFav(isFavorite(music.id))
     setPosterIndex(0)
+    setPosterClock(0)
     setBrokenPosters([])
+    setPosterSrc({})
+    setDragX(0)
+    setDragging(false)
   }, [music.id])
 
   useEffect(() => {
     if (posters.length < 2) return
     const timer = window.setInterval(() => {
+      if (draggingRef.current) return
       setPosterIndex((index) => (index + 1) % posters.length)
     }, 4000)
     return () => window.clearInterval(timer)
-  }, [music.id, posters.length])
+  }, [music.id, posters.length, posterClock])
 
   useEffect(() => {
     let cancelled = false
@@ -133,6 +147,72 @@ export function MusicDetailPage({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [music.id])
+
+  const stepPoster = (direction: number) => {
+    if (posters.length < 2) return
+    setPosterIndex((index) => (index + direction + posters.length) % posters.length)
+    setPosterClock((clock) => clock + 1)
+  }
+
+  const onPosterPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (posters.length < 2) return
+    dragRef.current = { x: event.clientX, y: event.clientY, dx: 0, active: true }
+  }
+
+  const onPosterPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current.active) return
+    const dx = event.clientX - dragRef.current.x
+    const dy = event.clientY - dragRef.current.y
+    if (!draggingRef.current) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return
+      if (Math.abs(dy) > Math.abs(dx)) {
+        dragRef.current.active = false
+        return
+      }
+    }
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    }
+    dragRef.current.dx = dx
+    draggingRef.current = true
+    setDragging(true)
+    setDragX(dx)
+  }
+
+  const finishPosterDrag = () => {
+    if (!dragRef.current.active && !draggingRef.current) return
+    const dx = dragRef.current.dx
+    dragRef.current.active = false
+    dragRef.current.dx = 0
+    draggingRef.current = false
+    setDragging(false)
+    setDragX(0)
+    if (Math.abs(dx) > 36) {
+      swipedRef.current = true
+      stepPoster(dx < 0 ? 1 : -1)
+      window.setTimeout(() => {
+        swipedRef.current = false
+      }, 0)
+    }
+  }
+
+  const onPosterError = (poster: string) => {
+    const current = posterSrcRef.current[poster] || poster
+    const next = smallerImageUrl(current)
+    if (next !== current) {
+      setPosterSrc((map) => ({ ...map, [poster]: next }))
+      return
+    }
+    setBrokenPosters((list) => (list.includes(poster) ? list : [...list, poster]))
+  }
+
+  const openLyricFromPoster = () => {
+    if (swipedRef.current) {
+      swipedRef.current = false
+      return
+    }
+    toggleLyric()
+  }
 
   const toggleLyric = () => {
     setLyricOpen((open) => {
@@ -178,7 +258,8 @@ export function MusicDetailPage({
     }
   }
 
-  const src = coverUrl(music.image)
+  const activePoster = posterIndex % Math.max(posters.length, 1)
+  const src = posters[0] || coverUrl(music.image, settings.posterSize)
 
   return (
     <div className={`detail-page${lyricOpen ? ' is-lyric' : ''}`}>
@@ -204,30 +285,59 @@ export function MusicDetailPage({
         </section>
       ) : (
         <>
-          <button type="button" className="detail-cover-wrap" onClick={toggleLyric} aria-label="显示歌词">
+          <div
+            className="detail-cover-wrap"
+            role="button"
+            tabIndex={0}
+            aria-label="显示歌词"
+            onClick={openLyricFromPoster}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                toggleLyric()
+              }
+            }}
+          >
             {posters.length > 1 ? (
-              <div className="poster-stack">
-                {posters.map((poster, index) => (
-                  <img
-                    key={poster}
-                    className={`detail-cover${index === posterIndex % posters.length ? ' is-on' : ''}`}
-                    src={poster}
-                    alt=""
-                    onError={() => setBrokenPosters((list) => (list.includes(poster) ? list : [...list, poster]))}
-                  />
-                ))}
+              <div
+                className="poster-viewport"
+                onPointerDown={onPosterPointerDown}
+                onPointerMove={onPosterPointerMove}
+                onPointerUp={finishPosterDrag}
+                onPointerCancel={finishPosterDrag}
+              >
+                <div
+                  className={`poster-track${dragging ? ' is-dragging' : ''}`}
+                  style={{ transform: `translateX(calc(${-activePoster * 100}% + ${dragX}px))` }}
+                >
+                  {posters.map((poster) => (
+                    <img
+                      key={poster}
+                      className="detail-cover poster-slide"
+                      src={posterSrc[poster] || poster}
+                      alt=""
+                      draggable={false}
+                      onError={() => onPosterError(poster)}
+                    />
+                  ))}
+                </div>
                 <div className="poster-dots" aria-hidden="true">
                   {posters.map((poster, index) => (
-                    <i key={poster} className={index === posterIndex % posters.length ? 'is-on' : ''} />
+                    <i key={poster} className={index === activePoster ? 'is-on' : ''} />
                   ))}
                 </div>
               </div>
             ) : posters[0] ? (
-              <img className="detail-cover" src={posters[0]} alt="" />
+              <img
+                className="detail-cover"
+                src={posterSrc[posters[0]] || posters[0]}
+                alt=""
+                onError={() => onPosterError(posters[0]!)}
+              />
             ) : (
               <div className="detail-cover" />
             )}
-          </button>
+          </div>
           <div className="detail-info">
             <h2>{music.title}</h2>
             <p>

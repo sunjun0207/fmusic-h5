@@ -55,6 +55,8 @@ export type DownloadTask = {
 
 export type AppSettings = {
   quality: string
+  posterSize: number
+  mvQuality: string
   showNotification: boolean
 }
 

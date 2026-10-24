@@ -31,6 +31,7 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
   const [fullscreen, setFullscreen] = useState(false)
+  const [chrome, setChrome] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
@@ -124,8 +125,14 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
   }
 
   return (
-    <div ref={layerRef} className="mv-layer" role="dialog" aria-modal="true" aria-label={`${music.title} MV`}>
-      <header className="mv-head">
+    <div
+      ref={layerRef}
+      className={`mv-layer${chrome ? '' : ' is-clean'}${fullscreen ? ' is-fullscreen' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${music.title} MV`}
+    >
+      <header className="mv-chrome mv-head">
         <button type="button" className="mv-close" onClick={onClose} aria-label="关闭">
           关闭
         </button>
@@ -138,7 +145,7 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
         </button>
       </header>
 
-      <div className="mv-stage">
+      <div className="mv-stage" onClick={() => setChrome((open) => !open)}>
         {url ? (
           <video
             ref={videoRef}
@@ -157,7 +164,7 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
         )}
       </div>
 
-      <div className="mv-bar">
+      <div className="mv-chrome mv-bar">
         <button type="button" className="mv-toggle" onClick={toggle} disabled={!url} aria-label={paused ? '播放' : '暂停'}>
           {paused ? (
             <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -193,7 +200,7 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
           {fmt(current)} / {fmt(duration)}
         </span>
       </div>
-      {message ? <p className="mv-message">{message}</p> : null}
+      {message ? <p className="mv-chrome mv-message">{message}</p> : null}
     </div>
   )
 }

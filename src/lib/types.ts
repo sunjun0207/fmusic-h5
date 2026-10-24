@@ -15,6 +15,7 @@ export type MusicItem = {
   artistImage?: string
   hasMv?: boolean
   mvPic?: string
+  mvQualities?: string[]
   fileInfo?: string
   lrc?: string
 }

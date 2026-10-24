@@ -117,6 +117,7 @@ function keepMv(prev: MusicItem | undefined, item: MusicItem): MusicItem {
     ...item,
     hasMv: typeof item.hasMv === 'boolean' ? item.hasMv : prev.hasMv,
     mvPic: item.mvPic || prev.mvPic,
+    mvQualities: item.mvQualities ?? prev.mvQualities,
   }
 }
 

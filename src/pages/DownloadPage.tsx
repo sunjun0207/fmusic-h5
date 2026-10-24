@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { requestDownload, trackExt, trackFilename } from '../lib/download'
+import { qualityLabel, requestDownload, taskFilename } from '../lib/download'
 import { getDownloads, removeDownload, saveDownloads, upsertDownload } from '../lib/storage'
 import type { DownloadTask } from '../lib/types'
 
@@ -15,7 +15,7 @@ export function DownloadPage() {
     setSavingId(task.id)
     setSaveError('')
     try {
-      const filename = trackFilename(task.title, task.artist, trackExt(task.quality))
+      const filename = taskFilename(task)
       const mode = await requestDownload(task.url, filename)
       if (mode.mode === 'started') {
         upsertDownload({ ...task, status: 'opened' })
@@ -61,7 +61,7 @@ export function DownloadPage() {
             <div>
               <div className="song-title">{t.title}</div>
               <div className="song-sub">
-                {t.artist} · {t.quality}
+                {t.artist} · {qualityLabel(t.quality)}
               </div>
               <span className="badge">{t.status}</span>
             </div>

@@ -1,5 +1,5 @@
 import { buildMvNmobiPath, buildNmobiPath } from './kuwoDes'
-import { isMvQuality, mvFallback, visibleMvQuality } from './quality'
+import { isMvQuality, mvFallback, mvQualitiesFromFormats, visibleMvQuality } from './quality'
 import { cleanArtist, cleanText } from './text'
 import type {
   DownloadTask,
@@ -52,6 +52,7 @@ function mapSearchItem(raw: Record<string, unknown>): MusicItem | null {
   const artistPic = String(pick(raw, 'web_artistpic_short') ?? '')
   const fileInfo = String(pick(raw, 'MINFO', 'mInfo') ?? '')
   const mvPic = mvPicture(raw)
+  const mvQualities = mvQualitiesFromFormats(String(pick(raw, 'FORMATS', 'formats') ?? ''))
   return {
     id,
     title: title || '未知歌曲',
@@ -63,6 +64,7 @@ function mapSearchItem(raw: Record<string, unknown>): MusicItem | null {
     artistImage: artistPic || undefined,
     hasMv: songHasMv(raw),
     mvPic: mvPic || undefined,
+    mvQualities,
     fileInfo,
   }
 }
@@ -301,19 +303,90 @@ export async function getPlayMeta(rid: string, br = '320kmp3'): Promise<PlayMeta
 export type MvSource = {
   url: string
   quality: string
+  bitrate: string
+}
+
+const MV_BITRATE: Record<string, string> = {
+  MP4: '512',
+  MP4HV: '1000',
+  MP4UL: '2000',
 }
 
 const mvCache = new Map<string, Promise<MvSource>>()
 
+function mvTierMatches(map: Record<string, string>, item: string): boolean {
+  if (!map.url) return false
+  const reported = (map.quality || '').trim().toUpperCase()
+  if (reported) return reported === item.toUpperCase()
+  const expected = MV_BITRATE[item]
+  const bitrate = (map.bitrate || '').replace(/[^\d]/g, '')
+  return Boolean(expected && bitrate && bitrate === expected)
+}
+
+async function probeMvTier(rid: string, item: string): Promise<MvSource | null> {
+  try {
+    const path = `${buildMvNmobiPath(rid, item)}&req=${encodeURIComponent(item)}`
+    const res = await fetch(path, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+    })
+    if (!res.ok) return null
+    const map = parseKv(await res.text())
+    if (!mvTierMatches(map, item)) return null
+    const bitrate = (map.bitrate || '').replace(/[^\d]/g, '') || MV_BITRATE[item] || ''
+    return {
+      url: rewriteAudioUrl(map.url),
+      quality: visibleMvQuality(item),
+      bitrate,
+    }
+  } catch {
+    return null
+  }
+}
+
+const mvAvailability = new Map<string, Promise<string[]>>()
+
+/** 旧记录没有 FORMATS 时，按三档各问一次，只留下真正有地址的。 */
+export function getAvailableMvQualities(rid: string): Promise<string[]> {
+  const cached = mvAvailability.get(rid)
+  if (cached) return cached
+  const groups: Array<[string, string[]]> = [
+    ['MP4', ['MP4', 'MP4L']],
+    ['MP4HV', ['MP4HV', 'MP4H']],
+    ['MP4UL', ['MP4UL']],
+  ]
+  const job = Promise.all(
+    groups.map(async ([visible, ids]) => {
+      for (const item of ids) {
+        const source = await probeMvTier(rid, item)
+        if (!source) continue
+        mvCache.set(`${rid}:${visible}`, Promise.resolve({ ...source, quality: visible }))
+        return visible
+      }
+      return ''
+    }),
+  ).then((list) => list.filter(Boolean))
+  mvAvailability.set(rid, job)
+  return job
+}
+
 export function getMvUrl(rid: string, quality?: string): Promise<MvSource> {
-  const picked = quality && isMvQuality(quality) ? quality : getSettings().mvQuality
+  const picked = quality && isMvQuality(quality) ? visibleMvQuality(quality) : getSettings().mvQuality
   const key = `${rid}:${picked}`
   const cached = mvCache.get(key)
   if (cached) return cached
-  const job = fetchMvUrl(rid, picked).catch((error: unknown) => {
-    mvCache.delete(key)
-    throw error
-  })
+  const job = fetchMvUrl(rid, picked)
+    .then((source) => {
+      if (source.quality !== picked) {
+        mvCache.delete(key)
+        mvCache.set(`${rid}:${source.quality}`, Promise.resolve(source))
+      }
+      return source
+    })
+    .catch((error: unknown) => {
+      mvCache.delete(key)
+      throw error
+    })
   mvCache.set(key, job)
   return job
 }
@@ -321,13 +394,20 @@ export function getMvUrl(rid: string, quality?: string): Promise<MvSource> {
 async function fetchMvUrl(rid: string, quality: string): Promise<MvSource> {
   for (const item of mvFallback(quality)) {
     try {
-      const res = await fetch(buildMvNmobiPath(rid, item))
+      const path = `${buildMvNmobiPath(rid, item)}&req=${encodeURIComponent(item)}`
+      const res = await fetch(path, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
+      })
       if (!res.ok) continue
       const map = parseKv(await res.text())
-      if (!map.url) continue
+      if (!mvTierMatches(map, item)) continue
+      const picked = isMvQuality(map.quality) ? map.quality : item
+      const bitrate = (map.bitrate || '').replace(/[^\d]/g, '') || MV_BITRATE[item] || ''
       return {
         url: rewriteAudioUrl(map.url),
-        quality: visibleMvQuality(isMvQuality(map.quality) ? map.quality : item),
+        quality: visibleMvQuality(picked),
+        bitrate,
       }
     } catch {
       /* try the next lower quality */

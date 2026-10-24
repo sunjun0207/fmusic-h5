@@ -12,8 +12,9 @@ import {
   saveTrackFile,
   type PendingDownload,
 } from './lib/download'
-import { coverUrl, getMvUrl, getPlayMeta, getUpdate, postAccess, resolveMvInfo } from './lib/api'
+import { coverUrl, getAvailableMvQualities, getMvUrl, getPlayMeta, getUpdate, postAccess, resolveMvInfo } from './lib/api'
 import { nextPlayMode, resolveAdvance } from './lib/playback'
+import { bestMvQuality } from './lib/quality'
 import {
   addRecentPlay,
   getFavorites,
@@ -48,6 +49,7 @@ export default function App() {
   const [mvMusic, setMvMusic] = useState<MusicItem | null>(null)
   const [mvUrl, setMvUrl] = useState('')
   const [mvQuality, setMvQuality] = useState(() => getSettings().mvQuality)
+  const [mvChoices, setMvChoices] = useState<string[]>([])
   const [mvLoading, setMvLoading] = useState(false)
   const [mvError, setMvError] = useState('')
   const [noMvStamp, setNoMvStamp] = useState<{ id: string; token: number } | null>(null)
@@ -179,6 +181,7 @@ export default function App() {
     mvActiveRef.current = false
     setMvMusic(null)
     setMvUrl('')
+    setMvChoices([])
     setMvLoading(false)
     const shouldResume = resume && resumeAudioRef.current
     resumeAudioRef.current = false
@@ -304,11 +307,16 @@ export default function App() {
     setMvError('')
     setMvMusic(music)
     setMvUrl('')
+    setMvChoices(music.mvQualities ?? [])
     setMvLoading(true)
-    const quality = getSettings().mvQuality
-    setMvQuality(quality)
     const request = ++mvRequest.current
     try {
+      const available = music.mvQualities ?? (await getAvailableMvQualities(music.id))
+      if (!available.length) throw new Error('这首歌暂时没有可播放的 MV')
+      if (token !== mvToken.current || request !== mvRequest.current) return
+      setMvChoices(available)
+      const quality = bestMvQuality(getSettings().mvQuality, available)
+      setMvQuality(quality)
       const source = await getMvUrl(music.id, quality)
       if (token !== mvToken.current || request !== mvRequest.current) return
       holdSong()
@@ -340,10 +348,11 @@ export default function App() {
 
   const changeMvQuality = useCallback(async (quality: string) => {
     const music = mvMusicRef.current
-    if (!music) return
+    if (!music || (mvChoices.length > 0 && !mvChoices.includes(quality))) return
     saveSettings({ mvQuality: quality })
     setMvError('')
     setMvQuality(quality)
+    setMvUrl('')
     const token = mvToken.current
     const request = ++mvRequest.current
     setMvLoading(true)
@@ -358,7 +367,7 @@ export default function App() {
     } finally {
       if (token === mvToken.current && request === mvRequest.current) setMvLoading(false)
     }
-  }, [])
+  }, [mvChoices])
 
   useEffect(() => {
     const syncDownload = () => {
@@ -681,6 +690,7 @@ export default function App() {
           music={mvMusic}
           url={mvUrl}
           quality={mvQuality}
+          qualities={mvChoices}
           loading={mvLoading}
           onClose={() => closeMv()}
           onQuality={(quality) => void changeMvQuality(quality)}

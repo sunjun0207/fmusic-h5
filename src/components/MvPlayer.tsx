@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { coverUrl, postDownload, toProxyAudioUrl } from '../lib/api'
 import { formatBytes, requestDownload, trackFilename } from '../lib/download'
-import { MV_QUALITIES, visibleMvQuality } from '../lib/quality'
+import { MV_QUALITIES, mvLabel, visibleMvQuality } from '../lib/quality'
 import { upsertDownload } from '../lib/storage'
 import type { DownloadTask, MusicItem } from '../lib/types'
 
@@ -12,10 +12,15 @@ function fmt(sec: number) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+function stepLevel(value: number, delta: number) {
+  return Math.min(100, Math.max(0, value + delta))
+}
+
 type Props = {
   music: MusicItem
   url: string
   quality: string
+  qualities: string[]
   loading: boolean
   onClose: () => void
   onQuality: (quality: string) => void
@@ -27,10 +32,11 @@ type IOSVideo = HTMLVideoElement & {
   webkitDisplayingFullscreen?: boolean
 }
 
-export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: Props) {
+export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQuality }: Props) {
   const layerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const resumeAt = useRef(0)
+  const volumeRef = useRef(100)
   const [paused, setPaused] = useState(true)
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -38,6 +44,8 @@ export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: P
   const [chrome, setChrome] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
+  const [volume, setVolume] = useState(100)
+  const [brightness, setBrightness] = useState(100)
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -67,8 +75,12 @@ export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: P
         setCurrent(start)
       }
     }
-    if (video.readyState >= 1) seek()
-    else video.addEventListener('loadedmetadata', seek)
+    video.addEventListener('loadedmetadata', seek)
+    const level = volumeRef.current / 100
+    video.volume = level
+    video.muted = level === 0
+    video.src = url
+    video.load()
     void video.play().catch(() => setPaused(true))
     const onBegin = () => setFullscreen(true)
     const onEnd = () => setFullscreen(false)
@@ -80,6 +92,15 @@ export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: P
       video.removeEventListener('webkitendfullscreen', onEnd)
     }
   }, [url])
+
+  useEffect(() => {
+    volumeRef.current = volume
+    const video = videoRef.current
+    if (!video) return
+    const level = volume / 100
+    video.volume = level
+    video.muted = level === 0
+  }, [volume, url])
 
   const toggleFullscreen = async () => {
     const layer = layerRef.current
@@ -116,13 +137,14 @@ export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: P
     setMessage('')
     try {
       const fileUrl = toProxyAudioUrl(url)
-      const filename = trackFilename(music.title, music.artist, 'mp4')
+      const label = mvLabel(quality)
+      const filename = trackFilename(music.title, music.artist, 'mp4', label)
       const task: DownloadTask = {
-        id: `${music.id}-mv-${Date.now()}`,
+        id: `${music.id}-mv-${visibleMvQuality(quality)}`,
         mid: music.id,
         title: music.title,
         artist: music.artist,
-        quality: 'MV',
+        quality: `MV-${label}`,
         url: fileUrl,
         status: 'ready',
         createdAt: Date.now(),
@@ -171,6 +193,7 @@ export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: P
       <div className="mv-stage" onClick={() => setChrome((open) => !open)}>
         {url ? (
           <video
+            key={url}
             ref={videoRef}
             src={url}
             poster={coverUrl(music.mvPic) || coverUrl(music.image) || undefined}
@@ -185,6 +208,7 @@ export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: P
         ) : (
           <div className="mv-loading">{loading ? '正在获取 MV…' : 'MV 准备中'}</div>
         )}
+        <div className="mv-dim" style={{ opacity: (100 - brightness) / 100 }} />
       </div>
 
       <div className="mv-chrome mv-bar">
@@ -221,6 +245,28 @@ export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: P
           {fmt(current)} / {fmt(duration)}
         </span>
         </div>
+        <div className="mv-levels">
+          <div className="mv-level">
+            <span>亮度</span>
+            <button type="button" className="mv-step" aria-label="降低亮度" disabled={brightness <= 0} onClick={() => setBrightness((value) => stepLevel(value, -10))}>
+              −
+            </button>
+            <span className="mv-level-value">{brightness}</span>
+            <button type="button" className="mv-step" aria-label="提高亮度" disabled={brightness >= 100} onClick={() => setBrightness((value) => stepLevel(value, 10))}>
+              +
+            </button>
+          </div>
+          <div className={`mv-level${url ? '' : ' is-off'}`}>
+            <span>音量</span>
+            <button type="button" className="mv-step" aria-label="降低音量" disabled={!url || volume <= 0} onClick={() => setVolume((value) => stepLevel(value, -10))}>
+              −
+            </button>
+            <span className="mv-level-value">{volume}</span>
+            <button type="button" className="mv-step" aria-label="提高音量" disabled={!url || volume >= 100} onClick={() => setVolume((value) => stepLevel(value, 10))}>
+              +
+            </button>
+          </div>
+        </div>
         <div className="mv-actions">
         <label className="mv-pill mv-quality">
           <span>清晰度</span>
@@ -230,13 +276,14 @@ export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: P
             disabled={loading}
             onChange={(event) => {
               const next = event.target.value
-              if (next === quality) return
+              if (next === visibleMvQuality(quality)) return
+              if (qualities.length > 0 && !qualities.includes(next)) return
               resumeAt.current = videoRef.current?.currentTime || 0
               onQuality(next)
             }}
           >
             {MV_QUALITIES.map((item) => (
-              <option key={item.id} value={item.id}>
+              <option key={item.id} value={item.id} disabled={qualities.length > 0 && !qualities.includes(item.id)}>
                 {item.label}
               </option>
             ))}
@@ -244,26 +291,27 @@ export function MvPlayer({ music, url, quality, loading, onClose, onQuality }: P
         </label>
         <button
           type="button"
-          className={`mv-round mv-full${fullscreen ? ' is-on' : ''}`}
+          className={`mv-pill mv-full${fullscreen ? ' is-on' : ''}`}
           onClick={() => void toggleFullscreen()}
           disabled={!url}
           aria-label={fullscreen ? '退出全屏' : '全屏'}
         >
           {fullscreen ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M9 4v4a1 1 0 0 1-1 1H4" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M15 4v4a1 1 0 0 0 1 1h4" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M9 20v-4a1 1 0 0 0-1-1H4" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M15 20v-4a1 1 0 0 1 1-1h4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M8 4H5a1 1 0 0 0-1 1v3" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M16 4h3a1 1 0 0 1 1 1v3" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M20 16v3a1 1 0 0 1-1 1h-3" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M4 16v3a1 1 0 0 0 1 1h3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}
+          <span>{fullscreen ? '退出全屏' : '全屏'}</span>
         </button>
         </div>
       </div>

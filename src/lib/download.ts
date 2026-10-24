@@ -11,9 +11,17 @@ export function isWeChat(): boolean {
 
 export function trackExt(quality: string, format?: string): string {
   const hint = `${format || ''} ${quality}`.toLowerCase()
+  const q = quality.trim().toLowerCase()
   if (hint.includes('flac')) return 'flac'
-  if (quality.trim().toLowerCase() === 'mv' || hint.includes('mp4')) return 'mp4'
+  if (q === 'mv' || q.startsWith('mv-') || hint.includes('mp4')) return 'mp4'
   return 'mp3'
+}
+
+export function qualityLabel(quality: string): string {
+  const text = quality.trim()
+  if (/^mv-/i.test(text)) return `MV ${text.slice(3)}`
+  if (/^mv$/i.test(text)) return 'MV'
+  return text
 }
 
 function cleanPart(raw: string): string {
@@ -45,11 +53,18 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
-export function trackFilename(title: string, artist: string, ext: string): string {
+export function trackFilename(title: string, artist: string, ext: string, tag?: string): string {
   const name = cleanPart(title) || '未知歌曲'
   const singer = cleanPart(artist) || '未知歌手'
+  const extra = tag ? cleanPart(tag) : ''
   const suffix = ext.replace(/^\./, '').toLowerCase() || 'mp3'
-  return `${name}-${singer}.${suffix}`
+  return extra ? `${name}-${singer}-${extra}.${suffix}` : `${name}-${singer}.${suffix}`
+}
+
+export function taskFilename(task: { title: string; artist: string; quality: string }): string {
+  const ext = trackExt(task.quality)
+  const tag = /^mv-/i.test(task.quality.trim()) ? task.quality.trim().replace(/^mv-/i, '') : ''
+  return trackFilename(task.title, task.artist, ext, tag || undefined)
 }
 
 function encodePayload(data: PendingDownload): string {

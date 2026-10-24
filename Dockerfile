@@ -4,7 +4,7 @@
 #
 #   builder:node + pnpm,按 BUILD_MODE(local | dev | pro)执行 `pnpm run build:<mode>`,
 #           对应读取 .env.local / .env.dev / .env.pro(变量会编译进产物,故 env 文件必须进构建上下文)
-#   runner :nginx,托管 dist/,并把 /proxy/* 反向代理到酷我 / 自有 API(生产环境替代 vite server.proxy),
+#   runner :nginx,托管 dist/,并把 /api-fmusic-pomelo7-server/* 反向代理到酷我 / 自有 API(生产环境替代 vite server.proxy),
 #           可选终结 TLS:SSL_ENABLED=true + 挂载 /etc/nginx/ssl/{fullchain,privkey}.pem
 #
 # 基础镜像固定 minor,可通过 build-arg 覆盖为自有 ACR(国内构建机直连 Docker Hub 常超时):

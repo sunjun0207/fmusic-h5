@@ -1,4 +1,4 @@
-# fmusic-h5 本地 Docker 联调:用 .env.local 构建,nginx 纯 HTTP 托管 + /proxy/* 反代(验证生产形态,不含 TLS)。
+# fmusic-h5 本地 Docker 联调:用 .env.local 构建,nginx 纯 HTTP 托管 + /api-fmusic-pomelo7-server/* 反代(验证生产形态,不含 TLS)。
 #
 # 构建:pnpm run docker:local:build
 # 启动:pnpm run docker:local:up      → http://localhost:8080

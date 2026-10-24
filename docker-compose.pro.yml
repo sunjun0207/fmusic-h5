@@ -1,4 +1,4 @@
-# fmusic-h5 生产:用 .env.pro 构建,nginx 终结 TLS 并反代 /proxy/*。
+# fmusic-h5 生产:用 .env.pro 构建,nginx 终结 TLS 并反代 /api-fmusic-pomelo7-server/*。
 #
 # 构建:pnpm run docker:pro:build
 #   (基础镜像可覆盖为自有 ACR:docker compose -f docker-compose.pro.yml build \

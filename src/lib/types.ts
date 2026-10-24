@@ -59,6 +59,16 @@ export type AppSettings = {
   posterSize: number
   mvQuality: string
   showNotification: boolean
+  showDanmaku: boolean
+}
+
+export type SongComment = {
+  id: string
+  name: string
+  avatar: string
+  text: string
+  time: string
+  likes: number
 }
 
 export type PlayMode = 'list' | 'single' | 'shuffle'

@@ -61,12 +61,13 @@ npm run preview
 | `VITE_BASE` | 部署基础路径，如 `/` 或 `/fmusic/` | `vite.config.ts` → `base` |
 | `VITE_SOURCEMAP` | 是否生成 sourcemap（`true` / `false`） | `vite.config.ts` → `build.sourcemap` |
 | `VITE_DEV_PORT` | 开发服务器端口 | `vite.config.ts` → `server.port` |
-| `VITE_API_TARGET` | 自有 API 后端源，`/proxy/api/*` 的代理目标 | `vite.config.ts` → `server.proxy` |
+| `VITE_API_TARGET` | 自有 API 后端源，`/api-fmusic-pomelo7-server/api/*` 的代理目标 | `vite.config.ts` → `server.proxy` |
 | `VITE_KW_SEARCH_TARGET` | 酷我搜索服务 | 同上 |
 | `VITE_KW_OPENAPI_TARGET` | 酷我 openapi（联想词 / 歌词） | 同上 |
 | `VITE_KW_NMOBI_TARGET` | 酷我播放地址服务 | 同上 |
 | `VITE_KW_IMG_TARGET` | 酷我封面图 | 同上 |
 | `VITE_KW_CDN_TARGET` | 酷我音频 CDN | 同上 |
+| `VITE_KW_COMMENT_TARGET` | 酷我评论 | 同上 |
 
 ### 加载规则与注意事项
 
@@ -75,7 +76,7 @@ npm run preview
 - **Vite 禁止使用 `local` 作为 mode 名称**（`vite --mode local` 会直接报错 `"local" cannot be used as a mode name`），所以本地环境不传 `--mode`，使用默认 mode 时恰好只加载 `.env.local`。
 - `.env.local`、`.env.dev`、`.env.pro` 不含敏感信息，**需要提交到仓库**；如需个人临时覆盖，新建 `.env.dev.local` / `.env.pro.local` 等文件（已在 `.gitignore` 中忽略）。
 - 修改 `.env*` 文件后需重启 `npm run dev` 才会生效。
-- `VITE_*_TARGET` 系列在两处生效：Vite 开发服务器 / preview 的代理，以及 Docker 镜像内 Nginx 的反代（见下方「Docker 部署」）。前端请求始终发到同源的 `/proxy/*` 路径，不受影响。
+- `VITE_*_TARGET` 系列在两处生效：Vite 开发服务器 / preview 的代理，以及 Docker 镜像内 Nginx 的反代（见下方「Docker 部署」）。前端请求始终发到同源的 `/api-fmusic-pomelo7-server/*` 路径，不受影响。
 
 ## Docker 部署
 
@@ -85,7 +86,7 @@ npm run preview
 
 ```
 builder  node:20-alpine + pnpm  →  pnpm run build:<BUILD_MODE>   (读取 .env.local / .env.dev / .env.pro)
-runner   nginx:1.27-alpine      →  托管 dist/ + /proxy/* 反代 + 可选 TLS 终结
+runner   nginx:1.27-alpine      →  托管 dist/ + /api-fmusic-pomelo7-server/* 反代 + 可选 TLS 终结
 ```
 
 Nginx 反代规则由 `docker/nginx/templates-available/app-locations.conf.template` 在容器启动时用 `envsubst` 渲染，目标地址来自 compose `env_file` 注入的 `VITE_*_TARGET`，与 `vite.config.ts` 完全一致，开发 / 生产只需维护一份地址。
@@ -99,7 +100,7 @@ Nginx 反代规则由 `docker/nginx/templates-available/app-locations.conf.templ
 | `docker-compose.dev.yml` | 测试服务器：HTTPS，证书 `docker/dev/ssl/` |
 | `docker-compose.pro.yml` | 生产：HTTPS，证书 `docker/pro/ssl/` |
 | `docker/nginx/conf.d/gzip.conf` | gzip、`server_tokens off` 等 http 级配置 |
-| `docker/nginx/snippets/proxy-common.conf` | 每个 `/proxy/*` 共用的反代头、SNI、超时 |
+| `docker/nginx/snippets/proxy-common.conf` | 每个 `/api-fmusic-pomelo7-server/*` 共用的反代头、SNI、超时 |
 | `docker/nginx/templates-available/*.template` | `http`（纯 HTTP）、`http-redirect`（80→443 + ACME）、`https`（443）三个 server 模板 |
 | `docker/nginx/10-fmusic-select-templates.sh` | 入口脚本：校验 `VITE_*_TARGET`、渲染反代 snippet、按 `SSL_ENABLED` 选择模板 |
 
@@ -195,7 +196,7 @@ docker compose -f docker-compose.pro.yml build \
 
 - 修改 `src/`、`.env.*` 后需重新 `docker:<env>:build`，静态产物在构建期生成。
 - `docker/nginx/*.sh`、`*.template`、`*.conf` 必须为 LF 换行，已通过 `.gitattributes` 强制，Dockerfile 也会再做一次 `\r` 清理。
-- 本机 Docker Desktop 若配置了系统代理（Settings → Resources → Proxies），容器出网会经过该代理；部分代理规则会拒绝酷我域名（表现为 `/proxy/kw-*` 502、日志 `peer closed connection in SSL handshake`），把 `*.kuwo.cn` 加入代理绕过列表或关闭代理即可，服务器部署不受影响。
+- 本机 Docker Desktop 若配置了系统代理（Settings → Resources → Proxies），容器出网会经过该代理；部分代理规则会拒绝酷我域名（表现为 `/api-fmusic-pomelo7-server/kw-*` 502、日志 `peer closed connection in SSL handshake`），把 `*.kuwo.cn` 加入代理绕过列表或关闭代理即可，服务器部署不受影响。
 
 ## 架构说明
 
@@ -213,12 +214,13 @@ docker compose -f docker-compose.pro.yml build \
 
 开发时由 Vite 代理，Docker 部署时由镜像内 Nginx 代理，规则一致。目标地址来自对应 `.env.*` 文件，默认值如下：
 
-- `/proxy/api/*` → `${VITE_API_TARGET}/api/*`，默认 `https://music.4848948.xyz/api/*`（更新、公告、access/search/download 上报）
-- `/proxy/kw-search/*` → `${VITE_KW_SEARCH_TARGET}/*`，默认 `http://search.kuwo.cn/*`
-- `/proxy/kw-openapi/*` → `${VITE_KW_OPENAPI_TARGET}/*`，默认 `https://kuwo.cn/*`
-- `/proxy/kw-nmobi/*` → `${VITE_KW_NMOBI_TARGET}/*`，默认 `https://nmobi.kuwo.cn/*`（播放地址，需带 `User-Agent: okhttp/3.10.0`）
-- `/proxy/kw-img/*` → `${VITE_KW_IMG_TARGET}/*`，默认 `https://img1.kuwo.cn/*`
-- `/proxy/kw-cdn/*` → `${VITE_KW_CDN_TARGET}/*`，默认 `http://kw-er.kuwo.cn/*`（音频流）
+- `/api-fmusic-pomelo7-server/api/*` → `${VITE_API_TARGET}/api/*`，默认 `https://music.4848948.xyz/api/*`（更新、公告、access/search/download 上报）
+- `/api-fmusic-pomelo7-server/kw-search/*` → `${VITE_KW_SEARCH_TARGET}/*`，默认 `http://search.kuwo.cn/*`
+- `/api-fmusic-pomelo7-server/kw-openapi/*` → `${VITE_KW_OPENAPI_TARGET}/*`，默认 `https://kuwo.cn/*`
+- `/api-fmusic-pomelo7-server/kw-nmobi/*` → `${VITE_KW_NMOBI_TARGET}/*`，默认 `https://nmobi.kuwo.cn/*`（播放地址，需带 `User-Agent: okhttp/3.10.0`）
+- `/api-fmusic-pomelo7-server/kw-img/*` → `${VITE_KW_IMG_TARGET}/*`，默认 `https://img1.kuwo.cn/*`
+- `/api-fmusic-pomelo7-server/kw-cdn/*` → `${VITE_KW_CDN_TARGET}/*`，默认 `http://kw-er.kuwo.cn/*`（音频流）
+- `/api-fmusic-pomelo7-server/kw-comment/*` → `${VITE_KW_COMMENT_TARGET}/*`，默认 `https://ncomment.kuwo.cn/*`（评论、弹幕）
 
 ### 播放地址
 
@@ -228,7 +230,7 @@ docker compose -f docker-compose.pro.yml build \
 user=0&corp=kuwo&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk&p2p=1&type=convert_url2&sig=0&format={format}&rid={rid}&br={br}
 ```
 
-加密后请求：`/proxy/kw-nmobi/mobi.s?f=kuwo&q=...`，解析返回的 `url=` 行；若为 `http://kw-er.kuwo.cn/...` 会改写到 `/proxy/kw-cdn/...` 以便本地代理播放。
+加密后请求：`/api-fmusic-pomelo7-server/kw-nmobi/mobi.s?f=kuwo&q=...`，解析返回的 `url=` 行；若为 `http://kw-er.kuwo.cn/...` 会改写到 `/api-fmusic-pomelo7-server/kw-cdn/...` 以便本地代理播放。
 
 ### H5 与 App 差异
 

@@ -87,6 +87,7 @@ const defaultSettings: AppSettings = {
   posterSize: 1000,
   mvQuality: 'MP4UL',
   showNotification: true,
+  showDanmaku: true,
 }
 
 export function getSettings(): AppSettings {

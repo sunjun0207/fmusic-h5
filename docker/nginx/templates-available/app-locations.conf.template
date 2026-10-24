@@ -35,39 +35,39 @@ location / {
 # ---------------- 反向代理:与 vite.config.ts server.proxy 一一对应 ----------------
 
 # 自有 API:更新 / 公告 / access·search·download 上报
-location /proxy/api/ {
+location /api-fmusic-pomelo7-server/api/ {
     proxy_pass ${VITE_API_TARGET}/api/;
     include /etc/nginx/snippets/proxy-common.conf;
 }
 
 # 酷我搜索
-location /proxy/kw-search/ {
+location /api-fmusic-pomelo7-server/kw-search/ {
     proxy_pass ${VITE_KW_SEARCH_TARGET}/;
     include /etc/nginx/snippets/proxy-common.conf;
 }
 
 # 酷我 openapi:联想词 / 歌词
-location /proxy/kw-openapi/ {
+location /api-fmusic-pomelo7-server/kw-openapi/ {
     proxy_pass ${VITE_KW_OPENAPI_TARGET}/;
     include /etc/nginx/snippets/proxy-common.conf;
 }
 
 # 酷我播放地址(需伪装 okhttp UA,见 vite.config.ts)
-location /proxy/kw-nmobi/ {
+location /api-fmusic-pomelo7-server/kw-nmobi/ {
     proxy_pass ${VITE_KW_NMOBI_TARGET}/;
     include /etc/nginx/snippets/proxy-common.conf;
     proxy_set_header User-Agent "okhttp/3.10.0";
 }
 
 # 酷我封面图
-location /proxy/kw-img/ {
+location /api-fmusic-pomelo7-server/kw-img/ {
     proxy_pass ${VITE_KW_IMG_TARGET}/;
     include /etc/nginx/snippets/proxy-common.conf;
     expires 7d;
 }
 
 # 酷我音频 CDN:流式转发,不落缓冲,Range 请求原样透传
-location /proxy/kw-cdn/ {
+location /api-fmusic-pomelo7-server/kw-cdn/ {
     proxy_pass ${VITE_KW_CDN_TARGET}/;
     include /etc/nginx/snippets/proxy-common.conf;
     proxy_buffering off;
@@ -77,11 +77,11 @@ location /proxy/kw-cdn/ {
 
 # 下载走同源反代。播放已直接使用 CDN 的 HTTPS，不依赖这里。
 # 必须把路径写进 proxy_pass：带变量时 rewrite 不会自动替换上游 URI。
-location ~* ^/proxy/kw-audio/(?<audio_host>kw-[a-z0-9-]+\.kuwo\.cn)/ {
+location ~* ^/api-fmusic-pomelo7-server/kw-audio/(?<audio_host>kw-[a-z0-9-]+\.kuwo\.cn)/ {
     resolver 223.5.5.5 119.29.29.29 valid=300s ipv6=off;
     resolver_timeout 5s;
     set $audio_backend $audio_host;
-    rewrite ^/proxy/kw-audio/[^/]+(/.*)$ $1 break;
+    rewrite ^/api-fmusic-pomelo7-server/kw-audio/[^/]+(/.*)$ $1 break;
     proxy_pass http://$audio_backend$uri$is_args$args;
     proxy_http_version 1.1;
     proxy_set_header Connection "";
@@ -95,9 +95,17 @@ location ~* ^/proxy/kw-audio/(?<audio_host>kw-[a-z0-9-]+\.kuwo\.cn)/ {
     proxy_read_timeout 300s;
 }
 
-# 未单独配置的 /proxy/* 不要回落到 index.html，否则会把网页存成歌曲。
-# nginx 按最长前缀匹配，/proxy/ 不会挡住 /proxy/api/ 等更长的前缀。
-location /proxy/ {
+# 酷我评论 / 弹幕
+location /api-fmusic-pomelo7-server/kw-comment/ {
+    proxy_pass ${VITE_KW_COMMENT_TARGET}/;
+    include /etc/nginx/snippets/proxy-common.conf;
+    proxy_set_header Referer "https://www.kuwo.cn/";
+    proxy_set_header User-Agent "Mozilla/5.0";
+}
+
+# 未单独配置的 /api-fmusic-pomelo7-server/* 不要回落到 index.html，否则会把网页存成歌曲。
+# nginx 按最长前缀匹配，/api-fmusic-pomelo7-server/ 不会挡住 /api-fmusic-pomelo7-server/api/ 等更长的前缀。
+location /api-fmusic-pomelo7-server/ {
     default_type text/plain;
     return 404;
 }

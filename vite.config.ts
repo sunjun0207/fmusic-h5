@@ -7,7 +7,7 @@ const KUWO_AUDIO_HOST = /^kw-[a-z0-9-]+\.kuwo\.cn$/i
 
 function kuwoAudioProxy(req: IncomingMessage, res: ServerResponse, next: () => void) {
   const raw = req.url || ''
-  const matched = raw.match(/^\/proxy\/kw-audio\/(kw-[a-z0-9-]+\.kuwo\.cn)(\/.*)$/i)
+  const matched = raw.match(/^\/api-fmusic-pomelo7-server\/kw-audio\/(kw-[a-z0-9-]+\.kuwo\.cn)(\/.*)$/i)
   if (!matched || !KUWO_AUDIO_HOST.test(matched[1])) {
     next()
     return
@@ -77,14 +77,23 @@ export default defineConfig(({ mode }) => {
       host: true,
       port: Number(env.VITE_DEV_PORT) || 5173,
       proxy: {
-        '/proxy/api': proxyRule('/proxy/api', env.VITE_API_TARGET, '/api'),
-        '/proxy/kw-search': proxyRule('/proxy/kw-search', env.VITE_KW_SEARCH_TARGET),
-        '/proxy/kw-openapi': proxyRule('/proxy/kw-openapi', env.VITE_KW_OPENAPI_TARGET),
-        '/proxy/kw-nmobi': proxyRule('/proxy/kw-nmobi', env.VITE_KW_NMOBI_TARGET, '', {
+        '/api-fmusic-pomelo7-server/api': proxyRule('/api-fmusic-pomelo7-server/api', env.VITE_API_TARGET, '/api'),
+        '/api-fmusic-pomelo7-server/kw-search': proxyRule('/api-fmusic-pomelo7-server/kw-search', env.VITE_KW_SEARCH_TARGET),
+        '/api-fmusic-pomelo7-server/kw-openapi': proxyRule('/api-fmusic-pomelo7-server/kw-openapi', env.VITE_KW_OPENAPI_TARGET),
+        '/api-fmusic-pomelo7-server/kw-nmobi': proxyRule('/api-fmusic-pomelo7-server/kw-nmobi', env.VITE_KW_NMOBI_TARGET, '', {
           'User-Agent': 'okhttp/3.10.0',
         }),
-        '/proxy/kw-img': proxyRule('/proxy/kw-img', env.VITE_KW_IMG_TARGET),
-        '/proxy/kw-cdn': proxyRule('/proxy/kw-cdn', env.VITE_KW_CDN_TARGET),
+        '/api-fmusic-pomelo7-server/kw-img': proxyRule('/api-fmusic-pomelo7-server/kw-img', env.VITE_KW_IMG_TARGET),
+        '/api-fmusic-pomelo7-server/kw-cdn': proxyRule('/api-fmusic-pomelo7-server/kw-cdn', env.VITE_KW_CDN_TARGET),
+        '/api-fmusic-pomelo7-server/kw-comment': proxyRule(
+          '/api-fmusic-pomelo7-server/kw-comment',
+          env.VITE_KW_COMMENT_TARGET,
+          '',
+          {
+            Referer: 'https://www.kuwo.cn/',
+            'User-Agent': 'Mozilla/5.0',
+          },
+        ),
       },
     },
     build: {

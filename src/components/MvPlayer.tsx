@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { coverUrl, postDownload, toProxyAudioUrl } from '../lib/api'
+import { coverUrl, getComments, postDownload, toProxyAudioUrl } from '../lib/api'
+import { DanmakuLayer } from './DanmakuLayer'
+import { DanmakuSwitch, useDanmakuSetting } from './DanmakuSwitch'
 import { formatBytes, requestDownload, trackFilename } from '../lib/download'
 import { MV_QUALITIES, mvLabel, visibleMvQuality } from '../lib/quality'
 import { upsertDownload } from '../lib/storage'
-import type { DownloadTask, MusicItem } from '../lib/types'
+import type { DownloadTask, MusicItem, SongComment } from '../lib/types'
 
 function fmt(sec: number) {
   if (!Number.isFinite(sec) || sec < 0) return '0:00'
@@ -46,6 +48,8 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   const [message, setMessage] = useState('')
   const [volume, setVolume] = useState(100)
   const [brightness, setBrightness] = useState(100)
+  const [comments, setComments] = useState<SongComment[]>([])
+  const [danmakuOn] = useDanmakuSetting()
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -92,6 +96,22 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       video.removeEventListener('webkitendfullscreen', onEnd)
     }
   }, [url])
+
+  useEffect(() => {
+    let cancel = false
+    setComments([])
+    getComments(music.id, 'mv')
+      .then(async (data) => {
+        const list = data.list.length ? data.list : (await getComments(music.id, 'song')).list
+        if (!cancel) setComments(list)
+      })
+      .catch(() => {
+        if (!cancel) setComments([])
+      })
+    return () => {
+      cancel = true
+    }
+  }, [music.id])
 
   useEffect(() => {
     volumeRef.current = volume
@@ -209,6 +229,7 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
           <div className="mv-loading">{loading ? '正在获取 MV…' : 'MV 准备中'}</div>
         )}
         <div className="mv-dim" style={{ opacity: (100 - brightness) / 100 }} />
+        <DanmakuLayer comments={comments} enabled={danmakuOn} />
       </div>
 
       <div className="mv-chrome mv-bar">
@@ -289,6 +310,8 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
             ))}
           </select>
         </label>
+        <div className="mv-action-end">
+        <DanmakuSwitch light />
         <button
           type="button"
           className={`mv-pill mv-full${fullscreen ? ' is-on' : ''}`}
@@ -313,6 +336,7 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
           )}
           <span>{fullscreen ? '退出全屏' : '全屏'}</span>
         </button>
+        </div>
         </div>
       </div>
       {message ? <p className="mv-chrome mv-message">{message}</p> : null}

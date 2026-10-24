@@ -19,7 +19,7 @@ log() { echo "[fmusic-h5] $*"; }
 die() { echo "[fmusic-h5] ERROR: $*" >&2; exit 1; }
 
 # ---- 1. 校验反代目标 ----
-required="VITE_API_TARGET VITE_KW_SEARCH_TARGET VITE_KW_OPENAPI_TARGET VITE_KW_NMOBI_TARGET VITE_KW_IMG_TARGET VITE_KW_CDN_TARGET"
+required="VITE_API_TARGET VITE_KW_SEARCH_TARGET VITE_KW_OPENAPI_TARGET VITE_KW_NMOBI_TARGET VITE_KW_IMG_TARGET VITE_KW_CDN_TARGET VITE_KW_COMMENT_TARGET"
 for v in $required; do
   eval "val=\${$v:-}"
   [ -n "$val" ] || die "缺少环境变量 $v(compose 需通过 env_file 加载 .env.local / .env.dev / .env.pro)"
@@ -31,7 +31,7 @@ done
 
 # ---- 2. 渲染反代 snippet ----
 mkdir -p "$TEMPLATES" "$SNIPPETS"
-whitelist='${VITE_API_TARGET} ${VITE_KW_SEARCH_TARGET} ${VITE_KW_OPENAPI_TARGET} ${VITE_KW_NMOBI_TARGET} ${VITE_KW_IMG_TARGET} ${VITE_KW_CDN_TARGET}'
+whitelist='${VITE_API_TARGET} ${VITE_KW_SEARCH_TARGET} ${VITE_KW_OPENAPI_TARGET} ${VITE_KW_NMOBI_TARGET} ${VITE_KW_IMG_TARGET} ${VITE_KW_CDN_TARGET} ${VITE_KW_COMMENT_TARGET}'
 envsubst "$whitelist" \
   < "$AVAILABLE/app-locations.conf.template" \
   > "$SNIPPETS/app-locations.conf"

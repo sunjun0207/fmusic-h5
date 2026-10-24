@@ -1,4 +1,4 @@
-# fmusic-h5 测试 / 开发服务器:用 .env.dev 构建,nginx 终结 TLS 并反代 /proxy/*。
+# fmusic-h5 测试 / 开发服务器:用 .env.dev 构建,nginx 终结 TLS 并反代 /api-fmusic-pomelo7-server/*。
 #
 # 构建:pnpm run docker:dev:build
 # 启动:pnpm run docker:dev:up

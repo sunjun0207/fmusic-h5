@@ -7,6 +7,7 @@ import type {
   MusicItem,
   NotificationInfo,
   PlayMeta,
+  SongComment,
   UpdateInfo,
 } from './types'
 import { getSettings, getUid } from './storage'
@@ -86,7 +87,7 @@ export function coverUrl(path?: string, size?: number): string {
           u.protocol = 'https:'
           return u.toString()
         }
-        return resizeKuwoImage(`/proxy/kw-img${u.pathname}${u.search}`, size)
+        return resizeKuwoImage(`/api-fmusic-pomelo7-server/kw-img${u.pathname}${u.search}`, size)
       }
     } catch {
       /* ignore */
@@ -95,9 +96,9 @@ export function coverUrl(path?: string, size?: number): string {
   }
   const cleaned = path.replace(/^\/+/, '')
   if (cleaned.startsWith('star/albumcover/')) {
-    return resizeKuwoImage(`/proxy/kw-img/${cleaned}`, size)
+    return resizeKuwoImage(`/api-fmusic-pomelo7-server/kw-img/${cleaned}`, size)
   }
-  return resizeKuwoImage(`/proxy/kw-img/star/albumcover/${cleaned}`, size)
+  return resizeKuwoImage(`/api-fmusic-pomelo7-server/kw-img/star/albumcover/${cleaned}`, size)
 }
 
 /** 歌手图在 starheads，和专辑封面不是同一目录。现图最大约 500。 */
@@ -106,8 +107,8 @@ export function artistUrl(path?: string, size?: number): string {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) return coverUrl(path, capped)
   const cleaned = path.replace(/^\/+/, '')
-  if (cleaned.startsWith('star/')) return resizeKuwoImage(`/proxy/kw-img/${cleaned}`, capped)
-  return resizeKuwoImage(`/proxy/kw-img/star/starheads/${cleaned}`, capped)
+  if (cleaned.startsWith('star/')) return resizeKuwoImage(`/api-fmusic-pomelo7-server/kw-img/${cleaned}`, capped)
+  return resizeKuwoImage(`/api-fmusic-pomelo7-server/kw-img/star/starheads/${cleaned}`, capped)
 }
 
 export function posterList(item: { image?: string; artistImage?: string }, size = 1000): string[] {
@@ -146,7 +147,7 @@ export function toProxyAudioUrl(url: string): string {
   try {
     const parsed = new URL(url)
     if (!KUWO_AUDIO_HOST.test(parsed.hostname)) return url
-    return `/proxy/kw-audio/${parsed.hostname}${parsed.pathname}${parsed.search}`
+    return `/api-fmusic-pomelo7-server/kw-audio/${parsed.hostname}${parsed.pathname}${parsed.search}`
   } catch {
     return url
   }
@@ -175,7 +176,7 @@ export async function searchMusic(
     encoding: 'utf8',
     vipver: '1',
   })
-  const res = await fetch(`/proxy/kw-search/r.s?${qs}`)
+  const res = await fetch(`/api-fmusic-pomelo7-server/kw-search/r.s?${qs}`)
   const text = await res.text()
   // Kuwo sometimes returns JSON with single quotes / trailing commas — try normal parse first
   let data: Record<string, unknown>
@@ -224,7 +225,7 @@ export async function resolveMvInfo(
 export async function searchKey(keyword: string): Promise<string[]> {
   if (!keyword.trim()) return []
   const res = await fetch(
-    `/proxy/kw-openapi/openapi/v1/www/search/searchKey?key=${encodeURIComponent(keyword)}`,
+    `/api-fmusic-pomelo7-server/kw-openapi/openapi/v1/www/search/searchKey?key=${encodeURIComponent(keyword)}`,
   )
   const data = (await res.json()) as { code?: number; data?: unknown }
   const raw = data.data
@@ -262,7 +263,7 @@ export async function searchKey(keyword: string): Promise<string[]> {
 
 export async function getLyric(musicId: string): Promise<LyricLine[]> {
   const res = await fetch(
-    `/proxy/kw-openapi/openapi/v1/www/lyric/getlyric?musicId=${encodeURIComponent(musicId)}`,
+    `/api-fmusic-pomelo7-server/kw-openapi/openapi/v1/www/lyric/getlyric?musicId=${encodeURIComponent(musicId)}`,
   )
   const data = (await res.json()) as {
     data?: { lrclist?: LyricLine[]; lrcList?: LyricLine[] }
@@ -418,7 +419,7 @@ async function fetchMvUrl(rid: string, quality: string): Promise<MvSource> {
 
 export async function getUpdate(): Promise<UpdateInfo | null> {
   try {
-    const res = await fetch('/proxy/api/update')
+    const res = await fetch('/api-fmusic-pomelo7-server/api/update')
     const data = (await res.json()) as UpdateInfo
     if (!data?.version) return null
     return data
@@ -429,7 +430,7 @@ export async function getUpdate(): Promise<UpdateInfo | null> {
 
 export async function getNotification(): Promise<NotificationInfo | null> {
   try {
-    const res = await fetch('/proxy/api/notification')
+    const res = await fetch('/api-fmusic-pomelo7-server/api/notification')
     const data = (await res.json()) as NotificationInfo
     if (!data?.title && !data?.content) return null
     return data
@@ -440,7 +441,7 @@ export async function getNotification(): Promise<NotificationInfo | null> {
 
 export async function postAccess(): Promise<void> {
   try {
-    await fetch('/proxy/api/access', {
+    await fetch('/api-fmusic-pomelo7-server/api/access', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -458,7 +459,7 @@ export async function postAccess(): Promise<void> {
 
 export async function postSearch(keyword: string): Promise<void> {
   try {
-    await fetch('/proxy/api/search', {
+    await fetch('/api-fmusic-pomelo7-server/api/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid: getUid(), keyword }),
@@ -468,9 +469,61 @@ export async function postSearch(keyword: string): Promise<void> {
   }
 }
 
+function commentAvatar(url: string): string {
+  if (!url) return ''
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname.includes('kuwo.cn') && parsed.pathname.includes('/userhead/')) {
+      return `/api-fmusic-pomelo7-server/kw-img${parsed.pathname}${parsed.search}`
+    }
+    if (parsed.protocol === 'http:') parsed.protocol = 'https:'
+    return parsed.toString()
+  } catch {
+    return url
+  }
+}
+
+function mapComment(raw: Record<string, unknown>, index: number): SongComment | null {
+  const text = cleanText(String(raw.msg ?? '')).replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  return {
+    id: String(raw.id ?? `${index}-${text.slice(0, 12)}`),
+    name: cleanText(String(raw.u_name ?? '')) || '听众',
+    avatar: commentAvatar(String(raw.u_pic ?? '')),
+    text,
+    time: String(raw.time ?? ''),
+    likes: Number(raw.like_num) || 0,
+  }
+}
+
+export async function getComments(
+  rid: string,
+  kind: 'song' | 'mv',
+  page = 1,
+  rows = 20,
+): Promise<{ list: SongComment[]; total: number }> {
+  const digest = kind === 'mv' ? '7' : '15'
+  const qs = new URLSearchParams({
+    type: 'get_comment',
+    f: 'web',
+    page: String(page),
+    rows: String(rows),
+    digest,
+    sid: rid,
+    uid: '0',
+    prod: 'newWeb',
+    httpsStatus: '1',
+  })
+  const res = await fetch(`/api-fmusic-pomelo7-server/kw-comment/com.s?${qs}`)
+  if (!res.ok) throw new Error('评论加载失败')
+  const data = (await res.json()) as { rows?: Array<Record<string, unknown>>; total?: string | number }
+  const list = (data.rows ?? []).map(mapComment).filter((item): item is SongComment => !!item)
+  return { list, total: Number(data.total) || list.length }
+}
+
 export async function postDownload(task: Pick<DownloadTask, 'mid' | 'title' | 'artist' | 'quality' | 'url'>): Promise<void> {
   try {
-    await fetch('/proxy/api/download', {
+    await fetch('/api-fmusic-pomelo7-server/api/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

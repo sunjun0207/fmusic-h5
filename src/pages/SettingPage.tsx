@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { APP_VERSION } from '../lib/api'
 import { getSettings, saveSettings } from '../lib/storage'
 import type { AppSettings } from '../lib/types'
+import { DanmakuSwitch } from '../components/DanmakuSwitch'
 import { QUALITY_OPTIONS } from '../components/DownloadSheet'
 import { MV_QUALITIES, POSTER_OPTIONS } from '../lib/quality'
 
@@ -48,6 +49,13 @@ export function SettingPage() {
               </option>
             ))}
           </select>
+        </div>
+        <div className="setting-row">
+          <div>
+            <div>弹幕</div>
+            <div className="song-sub">歌曲歌词页和 MV 里的浮动评论</div>
+          </div>
+          <DanmakuSwitch compact />
         </div>
         <div className="setting-row">
           <div>

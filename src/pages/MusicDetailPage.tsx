@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { coverUrl, getLyric, getMvUrl, getPlayMeta, postDownload, posterList, smallerImageUrl, toProxyAudioUrl } from '../lib/api'
+import { coverUrl, getComments, getLyric, getMvUrl, getPlayMeta, postDownload, posterList, smallerImageUrl, toProxyAudioUrl } from '../lib/api'
 import { formatBytes, requestDownload, trackExt, trackFilename } from '../lib/download'
 import { PLAY_MODE_LABEL } from '../lib/playback'
 import { getSettings, getShowLyric, isFavorite, saveShowLyric, toggleFavorite, upsertDownload } from '../lib/storage'
-import type { DownloadTask, LyricLine, MusicItem, PlayMode, QualityOption } from '../lib/types'
+import type { DownloadTask, LyricLine, MusicItem, PlayMode, QualityOption, SongComment } from '../lib/types'
+import { CommentList } from '../components/CommentList'
+import { DanmakuLayer } from '../components/DanmakuLayer'
+import { DanmakuSwitch, useDanmakuSetting } from '../components/DanmakuSwitch'
 import { DownloadSheet } from '../components/DownloadSheet'
 import { LyricView } from '../components/LyricView'
 import { TopBar } from '../components/TopBar'
@@ -99,6 +102,12 @@ export function MusicDetailPage({
   const [posterSrc, setPosterSrc] = useState<Record<string, string>>({})
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
+  const [comments, setComments] = useState<SongComment[]>([])
+  const [commentTotal, setCommentTotal] = useState(0)
+  const [commentPage, setCommentPage] = useState(1)
+  const [commentStatus, setCommentStatus] = useState<'loading' | 'ready' | 'empty' | 'error'>('loading')
+  const [commentMore, setCommentMore] = useState(false)
+  const [danmakuOn] = useDanmakuSetting()
   const dragRef = useRef({ x: 0, y: 0, dx: 0, active: false })
   const swipedRef = useRef(false)
   const draggingRef = useRef(false)
@@ -106,6 +115,46 @@ export function MusicDetailPage({
   posterSrcRef.current = posterSrc
   const settings = getSettings()
   const posters = posterList(music, settings.posterSize).filter((src) => !brokenPosters.includes(src))
+
+  useEffect(() => {
+    let cancel = false
+    setComments([])
+    setCommentPage(1)
+    setCommentTotal(0)
+    setCommentStatus('loading')
+    getComments(music.id, 'song')
+      .then((data) => {
+        if (cancel) return
+        setComments(data.list)
+        setCommentTotal(data.total)
+        setCommentStatus(data.list.length ? 'ready' : 'empty')
+      })
+      .catch(() => {
+        if (!cancel) setCommentStatus('error')
+      })
+    return () => {
+      cancel = true
+    }
+  }, [music.id])
+
+  const loadMoreComments = async () => {
+    if (commentMore || comments.length >= commentTotal) return
+    const next = commentPage + 1
+    setCommentMore(true)
+    try {
+      const data = await getComments(music.id, 'song', next)
+      setComments((list) => {
+        const seen = new Set(list.map((item) => item.id))
+        return [...list, ...data.list.filter((item) => !seen.has(item.id))]
+      })
+      setCommentTotal(data.total)
+      setCommentPage(next)
+    } catch {
+      setCommentStatus('error')
+    } finally {
+      setCommentMore(false)
+    }
+  }
 
   useEffect(() => {
     setFav(isFavorite(music.id))
@@ -278,7 +327,9 @@ export function MusicDetailPage({
               <strong>{music.title}</strong>
               <span>{music.artist}</span>
             </div>
+            <DanmakuSwitch light />
           </header>
+          <DanmakuLayer comments={comments} enabled={danmakuOn} />
           <div className="lyric-body">
             <LyricView lines={lyrics} status={lyricStatus} current={currentTime} onSeek={playAt} />
           </div>
@@ -474,6 +525,16 @@ export function MusicDetailPage({
       </div>
 
       {msg ? <div className="empty" style={{ padding: 8 }}>{msg}</div> : null}
+
+      {lyricOpen ? null : (
+        <CommentList
+          comments={comments}
+          total={commentTotal}
+          status={commentStatus}
+          loadingMore={commentMore}
+          onMore={() => void loadMoreComments()}
+        />
+      )}
 
       <DownloadSheet
         open={sheetOpen}

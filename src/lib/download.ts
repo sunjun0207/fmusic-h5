@@ -83,7 +83,7 @@ function decodePayload(raw: string): PendingDownload | null {
     const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0))
     const data = JSON.parse(new TextDecoder().decode(bytes)) as PendingDownload
     if (!data?.url || !data?.filename) return null
-    if (!data.url.startsWith('/proxy/')) return null
+    if (!data.url.startsWith('/api-fmusic-pomelo7-server/')) return null
     return { url: data.url, filename: data.filename }
   } catch {
     return null
@@ -115,7 +115,7 @@ function isMediaPayload(bytes: Uint8Array, contentType: string): boolean {
 }
 
 export async function saveTrackFile(url: string, filename: string): Promise<number> {
-  if (!url.startsWith('/proxy/')) throw new Error('下载地址无效')
+  if (!url.startsWith('/api-fmusic-pomelo7-server/')) throw new Error('下载地址无效')
   const res = await fetch(url)
   if (!res.ok) throw new Error('下载失败')
   const bytes = new Uint8Array(await res.arrayBuffer())

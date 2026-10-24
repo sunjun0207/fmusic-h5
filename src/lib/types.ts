@@ -12,6 +12,7 @@ export type MusicItem = {
   duration: number
   albumId?: string
   image?: string
+  artistImage?: string
   hasMv?: boolean
   mvPic?: string
   fileInfo?: string

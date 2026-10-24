@@ -23,6 +23,53 @@ function parseDuration(v: unknown): number {
   return Number.isFinite(n) ? n : 0
 }
 
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: ' ',
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  middot: '·',
+  mdash: '—',
+  ndash: '–',
+  hellip: '…',
+  lsquo: '‘',
+  rsquo: '’',
+  ldquo: '“',
+  rdquo: '”',
+}
+
+/** 酷我搜索和歌词里常留下 &apos;、&nbsp;、&#183; 或字面量 \\uXXXX。 */
+export function cleanText(input: string): string {
+  let text = input.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  )
+  if (/%(?:u[0-9a-fA-F]{4}|[0-9a-fA-F]{2})/.test(text)) {
+    try {
+      text = decodeURIComponent(text.replace(/%u([0-9a-fA-F]{4})/g, (_, hex: string) =>
+        `%${hex.slice(0, 2)}%${hex.slice(2)}`,
+      ))
+    } catch {
+      /* keep the original text */
+    }
+  }
+  text = text.replace(/<[^>]+>/g, '')
+  const codePoint = (value: number) => {
+    if (!Number.isInteger(value) || value < 0 || value > 0x10ffff) return ''
+    return String.fromCodePoint(value)
+  }
+  for (let i = 0; i < 3; i += 1) {
+    const next = text
+      .replace(/&#(\d+);/g, (_, num: string) => codePoint(Number(num)))
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => codePoint(Number.parseInt(hex, 16)))
+      .replace(/&([a-zA-Z]+);/g, (all, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? all)
+    if (next === text) break
+    text = next
+  }
+  return text.replace(/\u00a0/g, ' ').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim()
+}
+
 function mvPicture(raw: Record<string, unknown>) {
   const direct = String(pick(raw, 'hts_MVPIC') ?? '')
   if (direct) return direct
@@ -41,25 +88,13 @@ function songHasMv(raw: Record<string, unknown>) {
 function mapSearchItem(raw: Record<string, unknown>): MusicItem | null {
   const id = String(pick(raw, 'DC_TARGETID', 'musicId', 'MUSICRID') ?? '').replace(/^MUSIC_/, '')
   if (!id) return null
-  const title = String(pick(raw, 'SONGNAME', 'songName', 'NAME') ?? '未知歌曲')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .trim()
-  const artist = String(pick(raw, 'ARTIST', 'artist', 'ARTISTNAME') ?? '未知歌手')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .trim()
-  const album = String(pick(raw, 'ALBUM', 'album') ?? '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .trim()
+  const title = cleanText(String(pick(raw, 'SONGNAME', 'songName', 'NAME') ?? '')) || '未知歌曲'
+  const artist = cleanText(String(pick(raw, 'ARTIST', 'artist', 'ARTISTNAME') ?? '')) || '未知歌手'
+  const album = cleanText(String(pick(raw, 'ALBUM', 'album') ?? ''))
   const albumId = String(pick(raw, 'ALBUMID', 'albumId') ?? '')
   const duration = parseDuration(pick(raw, 'DURATION', 'duration'))
   const albumPic = String(pick(raw, 'web_albumpic_short', 'albumPic', 'pic') ?? '')
+  const artistPic = String(pick(raw, 'web_artistpic_short') ?? '')
   const fileInfo = String(pick(raw, 'MINFO', 'mInfo') ?? '')
   const mvPic = mvPicture(raw)
   return {
@@ -70,6 +105,7 @@ function mapSearchItem(raw: Record<string, unknown>): MusicItem | null {
     albumId,
     duration,
     image: albumPic,
+    artistImage: artistPic || undefined,
     hasMv: songHasMv(raw),
     mvPic: mvPic || undefined,
     fileInfo,
@@ -98,6 +134,20 @@ export function coverUrl(path?: string): string {
     return `/proxy/kw-img/${cleaned}`
   }
   return `/proxy/kw-img/star/albumcover/${cleaned}`
+}
+
+/** 歌手图在 starheads，和专辑封面不是同一目录。 */
+export function artistUrl(path?: string): string {
+  if (!path) return ''
+  if (path.startsWith('http://') || path.startsWith('https://')) return coverUrl(path)
+  const cleaned = path.replace(/^\/+/, '')
+  if (cleaned.startsWith('star/')) return `/proxy/kw-img/${cleaned}`
+  return `/proxy/kw-img/star/starheads/${cleaned}`
+}
+
+export function posterList(item: { image?: string; artistImage?: string }): string[] {
+  const list = [coverUrl(item.image), artistUrl(item.artistImage)].filter(Boolean)
+  return [...new Set(list)]
 }
 
 const KUWO_AUDIO_HOST = /^kw-[a-z0-9-]+\.kuwo\.cn$/i
@@ -218,10 +268,10 @@ export async function searchKey(keyword: string): Promise<string[]> {
   if (Array.isArray(raw)) {
     return raw
       .map((item) => {
-        if (typeof item === 'string') return extractRelWord(item)
+        if (typeof item === 'string') return cleanText(extractRelWord(item))
         if (item && typeof item === 'object') {
           const o = item as Record<string, unknown>
-          return String(o.RELWORD ?? o.keyword ?? o.name ?? '').trim()
+          return cleanText(String(o.RELWORD ?? o.keyword ?? o.name ?? ''))
         }
         return ''
       })
@@ -230,7 +280,7 @@ export async function searchKey(keyword: string): Promise<string[]> {
   if (typeof raw === 'string') {
     return raw
       .split(/\n(?=RELWORD=)/i)
-      .map(extractRelWord)
+      .map((part) => cleanText(extractRelWord(part)))
       .filter(Boolean)
   }
   return []
@@ -247,7 +297,7 @@ export async function getLyric(musicId: string): Promise<LyricLine[]> {
   return list
     .map((line) => ({
       time: Number(line.time) || 0,
-      lineLyric: String(line.lineLyric ?? ''),
+      lineLyric: cleanText(String(line.lineLyric ?? '')),
     }))
     .filter((l) => l.lineLyric)
 }

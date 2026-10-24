@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { coverUrl, getLyric, getMvUrl, getPlayMeta, postDownload, toProxyAudioUrl } from '../lib/api'
+import { coverUrl, getLyric, getMvUrl, getPlayMeta, postDownload, posterList, toProxyAudioUrl } from '../lib/api'
 import { formatBytes, requestDownload, trackExt, trackFilename } from '../lib/download'
 import { PLAY_MODE_LABEL } from '../lib/playback'
 import { getSettings, getShowLyric, isFavorite, saveShowLyric, toggleFavorite, upsertDownload } from '../lib/storage'
@@ -93,11 +93,24 @@ export function MusicDetailPage({
   const [dlLoading, setDlLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [fav, setFav] = useState(() => isFavorite(music.id))
+  const [posterIndex, setPosterIndex] = useState(0)
+  const [brokenPosters, setBrokenPosters] = useState<string[]>([])
   const settings = getSettings()
+  const posters = posterList(music).filter((src) => !brokenPosters.includes(src))
 
   useEffect(() => {
     setFav(isFavorite(music.id))
+    setPosterIndex(0)
+    setBrokenPosters([])
   }, [music.id])
+
+  useEffect(() => {
+    if (posters.length < 2) return
+    const timer = window.setInterval(() => {
+      setPosterIndex((index) => (index + 1) % posters.length)
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [music.id, posters.length])
 
   useEffect(() => {
     let cancelled = false
@@ -192,7 +205,28 @@ export function MusicDetailPage({
       ) : (
         <>
           <button type="button" className="detail-cover-wrap" onClick={toggleLyric} aria-label="显示歌词">
-            {src ? <img className="detail-cover" src={src} alt="" /> : <div className="detail-cover" />}
+            {posters.length > 1 ? (
+              <div className="poster-stack">
+                {posters.map((poster, index) => (
+                  <img
+                    key={poster}
+                    className={`detail-cover${index === posterIndex % posters.length ? ' is-on' : ''}`}
+                    src={poster}
+                    alt=""
+                    onError={() => setBrokenPosters((list) => (list.includes(poster) ? list : [...list, poster]))}
+                  />
+                ))}
+                <div className="poster-dots" aria-hidden="true">
+                  {posters.map((poster, index) => (
+                    <i key={poster} className={index === posterIndex % posters.length ? 'is-on' : ''} />
+                  ))}
+                </div>
+              </div>
+            ) : posters[0] ? (
+              <img className="detail-cover" src={posters[0]} alt="" />
+            ) : (
+              <div className="detail-cover" />
+            )}
           </button>
           <div className="detail-info">
             <h2>{music.title}</h2>

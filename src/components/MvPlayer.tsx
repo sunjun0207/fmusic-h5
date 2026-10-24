@@ -18,20 +18,34 @@ type Props = {
   onClose: () => void
 }
 
+type IOSVideo = HTMLVideoElement & {
+  webkitEnterFullscreen?: () => void
+  webkitExitFullscreen?: () => void
+  webkitDisplayingFullscreen?: boolean
+}
+
 export function MvPlayer({ music, url, loading, onClose }: Props) {
+  const layerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const [paused, setPaused] = useState(true)
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [fullscreen, setFullscreen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key !== 'Escape' || document.fullscreenElement) return
+      onClose()
     }
+    const sync = () => setFullscreen(Boolean(document.fullscreenElement))
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    document.addEventListener('fullscreenchange', sync)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('fullscreenchange', sync)
+    }
   }, [onClose])
 
   useEffect(() => {
@@ -41,7 +55,37 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
     setCurrent(0)
     setDuration(0)
     void video.play().catch(() => setPaused(true))
+    const onBegin = () => setFullscreen(true)
+    const onEnd = () => setFullscreen(false)
+    video.addEventListener('webkitbeginfullscreen', onBegin)
+    video.addEventListener('webkitendfullscreen', onEnd)
+    return () => {
+      video.removeEventListener('webkitbeginfullscreen', onBegin)
+      video.removeEventListener('webkitendfullscreen', onEnd)
+    }
   }, [url])
+
+  const toggleFullscreen = async () => {
+    const layer = layerRef.current
+    const video = videoRef.current as IOSVideo | null
+    if (document.fullscreenElement) {
+      await document.exitFullscreen().catch(() => undefined)
+      return
+    }
+    if (video?.webkitDisplayingFullscreen) {
+      video.webkitExitFullscreen?.()
+      return
+    }
+    if (layer?.requestFullscreen) {
+      try {
+        await layer.requestFullscreen()
+        return
+      } catch {
+        /* iPhone 只能让 video 自己进入全屏 */
+      }
+    }
+    video?.webkitEnterFullscreen?.()
+  }
 
   const toggle = () => {
     const video = videoRef.current
@@ -80,7 +124,7 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
   }
 
   return (
-    <div className="mv-layer" role="dialog" aria-modal="true" aria-label={`${music.title} MV`}>
+    <div ref={layerRef} className="mv-layer" role="dialog" aria-modal="true" aria-label={`${music.title} MV`}>
       <header className="mv-head">
         <button type="button" className="mv-close" onClick={onClose} aria-label="关闭">
           关闭
@@ -142,6 +186,9 @@ export function MvPlayer({ music, url, loading, onClose }: Props) {
             setCurrent(next)
           }}
         />
+        <button type="button" className="mv-full" onClick={() => void toggleFullscreen()} disabled={!url}>
+          {fullscreen ? '退出全屏' : '全屏'}
+        </button>
         <span className="mv-time">
           {fmt(current)} / {fmt(duration)}
         </span>

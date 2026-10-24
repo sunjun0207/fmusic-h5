@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { BottomBar } from './components/BottomBar'
 import { Dialogs } from './components/Dialogs'
 import { DownloadGuide } from './components/DownloadGuide'
@@ -66,6 +66,12 @@ export default function App() {
   const resumeAudioRef = useRef(false)
   const playInFlightRef = useRef(false)
   const heldAudioRef = useRef<{ src: string; time: number } | null>(null)
+  const mainRef = useRef<HTMLElement | null>(null)
+  const searchScrollRef = useRef(0)
+  const tabRef = useRef(tab)
+  const detailRef = useRef(detail)
+  tabRef.current = tab
+  detailRef.current = detail
 
   useEffect(() => {
     queueRef.current = queue
@@ -176,10 +182,26 @@ export default function App() {
     releaseSong(shouldResume)
   }, [releaseSong])
 
+  const rememberSearchScroll = useCallback(() => {
+    if (tabRef.current !== 'search' || detailRef.current) return
+    const el = mainRef.current
+    if (el) searchScrollRef.current = el.scrollTop
+  }, [])
+
   const ensurePlay = useCallback(async (music: MusicItem, br?: string) => {
     const audio = audioRef.current
     if (!audio) return
     if (mvActiveRef.current) return
+    if (currentRef.current?.id === music.id && audio.getAttribute('src')) {
+      playToken.current += 1
+      playInFlightRef.current = false
+      setCurrent(music)
+      setDetail((d) => (d ? music : d))
+      audio.muted = false
+      audio.volume = 1
+      if (audio.paused) await audio.play().catch(() => setPlaying(false))
+      return
+    }
     const token = ++playToken.current
     playInFlightRef.current = true
     setCurrent(music)
@@ -269,6 +291,7 @@ export default function App() {
       setMvError('这首歌暂时没有 MV')
       return
     }
+    rememberSearchScroll()
     const token = ++mvToken.current
     const audio = audioRef.current
     resumeAudioRef.current =
@@ -306,7 +329,7 @@ export default function App() {
     } finally {
       if (token === mvToken.current) setMvLoading(false)
     }
-  }, [holdSong, releaseSong])
+  }, [holdSong, releaseSong, rememberSearchScroll])
 
   useEffect(() => {
     const syncDownload = () => {
@@ -401,6 +424,36 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [mvMusic, holdSong])
 
+  useLayoutEffect(() => {
+    if (detail || tab !== 'search') return
+    const el = mainRef.current
+    if (!el) return
+    const previous = el.style.scrollBehavior
+    el.style.scrollBehavior = 'auto'
+    el.scrollTop = searchScrollRef.current
+    el.style.scrollBehavior = previous
+  }, [detail, tab, mvMusic])
+
+  const stopPlayback = useCallback(() => {
+    const audio = audioRef.current
+    playToken.current += 1
+    playInFlightRef.current = false
+    if (audio) {
+      audio.pause()
+      audio.muted = false
+      audio.volume = 1
+      if (audio.getAttribute('src')) {
+        audio.removeAttribute('src')
+        audio.load()
+      }
+    }
+    heldAudioRef.current = null
+    setPlaying(false)
+    setCurrent(null)
+    setCurrentTime(0)
+    setDuration(0)
+  }, [])
+
   const togglePlay = useCallback(() => {
     const audio = audioRef.current
     if (!audio || !current || mvActiveRef.current) return
@@ -421,6 +474,7 @@ export default function App() {
   }, [])
 
   const openMusic = (item: MusicItem, list?: MusicItem[]) => {
+    rememberSearchScroll()
     const q = list && list.length ? list : [item]
     setQueue(q)
     playHistoryRef.current = []
@@ -429,7 +483,7 @@ export default function App() {
     void ensurePlay(item)
   }
 
-  const showMini = !!current && !detail && playing
+  const showMini = !!current && !detail && !mvMusic
   const canSwitch = queue.length > 1
 
   return (
@@ -450,7 +504,14 @@ export default function App() {
         />
       ) : null}
 
-      <main className={`app-main${detail ? ' detail-mode' : ''}`}>
+      <main ref={mainRef} className={`app-main${detail ? ' detail-mode' : ''}`}>
+        <div className={tab === 'search' && !detail ? undefined : 'pane-hidden'}>
+          <SearchPage
+            onOpenMusic={openMusic}
+            onPlayMv={(item) => void playMv(item)}
+            noMvStamp={noMvStamp}
+          />
+        </div>
         {detail ? (
           <MusicDetailPage
             music={detail}
@@ -470,34 +531,24 @@ export default function App() {
             onOpenQueue={() => setQueueOpen(true)}
             onPlayMv={(item) => void playMv(item)}
           />
-        ) : (
-          <>
-            {tab === 'home' && (
-              <HomePage
-                onOpenSearch={() => setTab('search')}
-                onOpenMusic={openMusic}
-                onPlayMv={(item) => void playMv(item)}
-                onOpenQueue={() => setQueueOpen(true)}
-                queue={queue}
-                current={current}
-                recentVersion={recentVersion}
-                mvVersion={mvVersion}
-              />
-            )}
-            {tab === 'search' && (
-              <SearchPage
-                onOpenMusic={openMusic}
-                onPlayMv={(item) => void playMv(item)}
-                noMvStamp={noMvStamp}
-              />
-            )}
-            {tab === 'favorite' && (
-              <FavoritePage onOpenMusic={openMusic} onPlayMv={(item) => void playMv(item)} mvVersion={mvVersion} />
-            )}
-            {tab === 'download' && <DownloadPage />}
-            {tab === 'setting' && <SettingPage />}
-          </>
-        )}
+        ) : tab === 'home' ? (
+          <HomePage
+            onOpenSearch={() => setTab('search')}
+            onOpenMusic={openMusic}
+            onPlayMv={(item) => void playMv(item)}
+            onOpenQueue={() => setQueueOpen(true)}
+            queue={queue}
+            current={current}
+            recentVersion={recentVersion}
+            mvVersion={mvVersion}
+          />
+        ) : tab === 'favorite' ? (
+          <FavoritePage onOpenMusic={openMusic} onPlayMv={(item) => void playMv(item)} mvVersion={mvVersion} />
+        ) : tab === 'download' ? (
+          <DownloadPage />
+        ) : tab === 'setting' ? (
+          <SettingPage />
+        ) : null}
       </main>
 
       {showMini && current ? (
@@ -505,9 +556,15 @@ export default function App() {
           className="mini-player"
           role="button"
           tabIndex={0}
-          onClick={() => setDetail(current)}
+          onClick={() => {
+            rememberSearchScroll()
+            setDetail(current)
+          }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') setDetail(current)
+            if (e.key === 'Enter') {
+              rememberSearchScroll()
+              setDetail(current)
+            }
           }}
         >
           {coverUrl(current.image) ? (
@@ -523,32 +580,49 @@ export default function App() {
             type="button"
             className="icon-btn"
             style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: 'none' }}
-            aria-label="播放列表"
+            aria-label="关闭当前播放"
             onClick={(e) => {
               e.stopPropagation()
-              setQueueOpen(true)
+              stopPlayback()
             }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M9 7h11M9 12h11M9 17h11" strokeLinecap="round" />
-              <path d="M4 7h.01M4 12h.01M4 17h.01" strokeLinecap="round" />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
             </svg>
           </button>
           <button
             type="button"
             className="icon-btn"
             style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', border: 'none' }}
+            aria-label={playing ? '暂停' : '继续播放'}
             onClick={(e) => {
               e.stopPropagation()
               togglePlay()
             }}
           >
-            {playing ? '❚❚' : '▶'}
+            {playing ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <rect x="6" y="5" width="4" height="14" rx="1" />
+                <rect x="14" y="5" width="4" height="14" rx="1" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+              </svg>
+            )}
           </button>
         </div>
       ) : null}
 
-      {!detail ? <BottomBar active={tab} onChange={setTab} /> : null}
+      {!detail ? (
+        <BottomBar
+          active={tab}
+          onChange={(next) => {
+            if (tab === 'search' && next !== 'search') rememberSearchScroll()
+            setTab(next)
+          }}
+        />
+      ) : null}
 
       <Dialogs
         update={update}

@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { coverUrl, getComments, postDownload, toProxyAudioUrl } from '../lib/api'
 import { DanmakuLayer } from './DanmakuLayer'
 import { DanmakuSwitch, useDanmakuSetting } from './DanmakuSwitch'
+import { PlaybackLevels, usePlaybackLevels } from './LevelSlider'
+import { applyMediaLevel, getLevels } from '../lib/levels'
 import { formatBytes, requestDownload, trackFilename } from '../lib/download'
 import { MV_QUALITIES, mvLabel, visibleMvQuality } from '../lib/quality'
 import { upsertDownload } from '../lib/storage'
@@ -12,10 +14,6 @@ function fmt(sec: number) {
   const m = Math.floor(sec / 60)
   const s = Math.floor(sec % 60)
   return `${m}:${String(s).padStart(2, '0')}`
-}
-
-function stepLevel(value: number, delta: number) {
-  return Math.min(100, Math.max(0, value + delta))
 }
 
 type Props = {
@@ -39,7 +37,6 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   const stageRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const resumeAt = useRef(0)
-  const volumeRef = useRef(100)
   const [paused, setPaused] = useState(true)
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
@@ -47,12 +44,27 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   const [chrome, setChrome] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
-  const [volume, setVolume] = useState(100)
-  const [brightness, setBrightness] = useState(100)
   const [comments, setComments] = useState<SongComment[]>([])
   const [danmakuOn] = useDanmakuSetting()
+  const { volume, brightness } = usePlaybackLevels('mv')
   const [danmakuBox, setDanmakuBox] = useState({ top: 12, left: 8, right: 8 })
   const [qualityOpen, setQualityOpen] = useState(false)
+  const hideTimer = useRef(0)
+
+  const scheduleHide = useCallback(() => {
+    window.clearTimeout(hideTimer.current)
+    hideTimer.current = window.setTimeout(() => {
+      setQualityOpen(false)
+      setChrome(false)
+    }, 3000)
+  }, [])
+
+  const keepChrome = (event: ReactPointerEvent) => {
+    if (!chrome || qualityOpen) return
+    const stage = stageRef.current
+    if (stage && event.target instanceof Node && stage.contains(event.target)) return
+    scheduleHide()
+  }
 
   useEffect(() => {
     if (!qualityOpen) return
@@ -95,9 +107,7 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       }
     }
     video.addEventListener('loadedmetadata', seek)
-    const level = volumeRef.current / 100
-    video.volume = level
-    video.muted = level === 0
+    applyMediaLevel(video, getLevels('mv').volume)
     video.src = url
     video.load()
     void video.play().catch(() => setPaused(true))
@@ -111,6 +121,12 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       video.removeEventListener('webkitendfullscreen', onEnd)
     }
   }, [url])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    applyMediaLevel(video, volume)
+  }, [volume, url])
 
   useEffect(() => {
     let cancel = false
@@ -171,13 +187,13 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   }, [url, chrome, fullscreen])
 
   useEffect(() => {
-    volumeRef.current = volume
-    const video = videoRef.current
-    if (!video) return
-    const level = volume / 100
-    video.volume = level
-    video.muted = level === 0
-  }, [volume, url])
+    if (!chrome || qualityOpen) {
+      window.clearTimeout(hideTimer.current)
+      return
+    }
+    scheduleHide()
+    return () => window.clearTimeout(hideTimer.current)
+  }, [chrome, qualityOpen, url, scheduleHide])
 
   const toggleFullscreen = async () => {
     const layer = layerRef.current
@@ -242,6 +258,8 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
     <div
       ref={layerRef}
       className={`mv-layer${chrome ? '' : ' is-clean'}${fullscreen ? ' is-fullscreen' : ''}`}
+      onPointerDown={keepChrome}
+      onPointerMove={keepChrome}
       role="dialog"
       aria-modal="true"
       aria-label={`${music.title} MV`}
@@ -323,28 +341,7 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
           {fmt(current)} / {fmt(duration)}
         </span>
         </div>
-        <div className="mv-levels">
-          <div className="mv-level">
-            <span>亮度</span>
-            <button type="button" className="mv-step" aria-label="降低亮度" disabled={brightness <= 0} onClick={() => setBrightness((value) => stepLevel(value, -10))}>
-              −
-            </button>
-            <span className="mv-level-value">{brightness}</span>
-            <button type="button" className="mv-step" aria-label="提高亮度" disabled={brightness >= 100} onClick={() => setBrightness((value) => stepLevel(value, 10))}>
-              +
-            </button>
-          </div>
-          <div className={`mv-level${url ? '' : ' is-off'}`}>
-            <span>音量</span>
-            <button type="button" className="mv-step" aria-label="降低音量" disabled={!url || volume <= 0} onClick={() => setVolume((value) => stepLevel(value, -10))}>
-              −
-            </button>
-            <span className="mv-level-value">{volume}</span>
-            <button type="button" className="mv-step" aria-label="提高音量" disabled={!url || volume >= 100} onClick={() => setVolume((value) => stepLevel(value, 10))}>
-              +
-            </button>
-          </div>
-        </div>
+        <PlaybackLevels scope="mv" tone="dark" />
         <div className="mv-actions">
         <div className={`mv-quality${qualityOpen ? ' is-open' : ''}`}>
           <button

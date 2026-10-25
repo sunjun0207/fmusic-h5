@@ -13,6 +13,7 @@ import {
   type PendingDownload,
 } from './lib/download'
 import { coverUrl, getAvailableMvQualities, getMvUrl, getPlayMeta, getUpdate, postAccess, resolveMvInfo } from './lib/api'
+import { applyMediaLevel, getLevels, LEVELS_EVENT } from './lib/levels'
 import { nextPlayMode, resolveAdvance } from './lib/playback'
 import { bestMvQuality } from './lib/quality'
 import {
@@ -157,8 +158,7 @@ export default function App() {
     const held = heldAudioRef.current
     heldAudioRef.current = null
     if (!audio) return
-    audio.muted = false
-    audio.volume = 1
+    applyMediaLevel(audio, getLevels('song').volume)
     if (held?.src) {
       audio.src = held.src
       const applyTime = () => {
@@ -203,8 +203,7 @@ export default function App() {
       playInFlightRef.current = false
       setCurrent(music)
       setDetail((d) => (d ? music : d))
-      audio.muted = false
-      audio.volume = 1
+      applyMediaLevel(audio, getLevels('song').volume)
       if (audio.paused) await audio.play().catch(() => setPlaying(false))
       return
     }
@@ -221,8 +220,7 @@ export default function App() {
       if (audio.getAttribute('src') !== meta.url) {
         audio.src = meta.url
       }
-      audio.muted = false
-      audio.volume = 1
+      applyMediaLevel(audio, getLevels('song').volume)
       await audio.play()
       if (mvActiveRef.current) holdSong()
     } catch (e) {
@@ -432,9 +430,18 @@ export default function App() {
     audio.addEventListener('playing', onPlaying)
     audio.addEventListener('pause', onPause)
     audio.addEventListener('ended', onEnded)
+    const syncVolume = (event?: Event) => {
+      const scope = event instanceof CustomEvent ? event.detail : undefined
+      if (scope && scope !== 'song') return
+      if (mvActiveRef.current) return
+      applyMediaLevel(audio, getLevels('song').volume)
+    }
+    syncVolume()
+    window.addEventListener(LEVELS_EVENT, syncVolume)
 
     return () => {
       audio.pause()
+      window.removeEventListener(LEVELS_EVENT, syncVolume)
       audio.removeEventListener('timeupdate', onTime)
       audio.removeEventListener('loadedmetadata', onMeta)
       audio.removeEventListener('play', onPlay)
@@ -478,8 +485,7 @@ export default function App() {
     playInFlightRef.current = false
     if (audio) {
       audio.pause()
-      audio.muted = false
-      audio.volume = 1
+      applyMediaLevel(audio, getLevels('song').volume)
       if (audio.getAttribute('src')) {
         audio.removeAttribute('src')
         audio.load()

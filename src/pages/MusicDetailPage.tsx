@@ -5,11 +5,21 @@ import { PLAY_MODE_LABEL } from '../lib/playback'
 import { getSettings, getShowLyric, isFavorite, saveShowLyric, toggleFavorite, upsertDownload } from '../lib/storage'
 import type { DownloadTask, LyricLine, MusicItem, PlayMode, QualityOption, SongComment } from '../lib/types'
 import { CommentList } from '../components/CommentList'
+import { PlaybackLevels, usePlaybackLevels } from '../components/LevelSlider'
 import { DanmakuLayer } from '../components/DanmakuLayer'
 import { DanmakuSwitch, useDanmakuSetting } from '../components/DanmakuSwitch'
 import { DownloadSheet } from '../components/DownloadSheet'
 import { LyricView } from '../components/LyricView'
-import { TopBar } from '../components/TopBar'
+
+function BackButton({ onBack, light = false }: { onBack: () => void; light?: boolean }) {
+  return (
+    <button type="button" className={`detail-back${light ? ' is-light' : ''}`} onClick={onBack} aria-label="返回">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+        <path d="M15 5 8 12l7 7" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  )
+}
 
 function PlayModeIcon({ mode }: { mode: PlayMode }) {
   if (mode === 'single') {
@@ -117,6 +127,7 @@ export function MusicDetailPage({
   const [commentMore, setCommentMore] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [danmakuOn] = useDanmakuSetting()
+  const { brightness } = usePlaybackLevels('song')
   const commentPanelRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef({ x: 0, y: 0, dx: 0, active: false })
   const swipedRef = useRef(false)
@@ -343,8 +354,6 @@ export function MusicDetailPage({
 
   return (
     <div className={`detail-page${lyricOpen ? ' is-lyric' : ''}`}>
-      <TopBar showBack onBack={onBack} plain />
-
       {lyricOpen ? (
         <section className="lyric-screen" aria-label={`${music.title} 歌词`}>
           {src ? (
@@ -354,6 +363,7 @@ export function MusicDetailPage({
           )}
           <div className="lyric-bg-mask" />
           <header className="lyric-screen-bar">
+            <BackButton onBack={onBack} light />
             <div className="lyric-heading">
               <strong>{music.title}</strong>
               <span>{music.artist}</span>
@@ -364,12 +374,14 @@ export function MusicDetailPage({
             {src ? <img src={src} alt="" /> : <span />}
           </div>
           <DanmakuLayer comments={comments} enabled={danmakuOn} />
+          <div className="media-dim" style={{ opacity: (100 - brightness) / 100 }} />
           <div className="lyric-body">
             <LyricView lines={lyrics} status={lyricStatus} current={currentTime} onSeek={playAt} />
           </div>
         </section>
       ) : (
         <>
+          <BackButton onBack={onBack} />
           <div
             className="detail-cover-wrap"
             role="button"
@@ -422,6 +434,7 @@ export function MusicDetailPage({
             ) : (
               <div className="detail-cover" />
             )}
+            <div className="media-dim" style={{ opacity: (100 - brightness) / 100 }} />
           </div>
           <div className="detail-info">
             <h2>{music.title}</h2>
@@ -522,6 +535,8 @@ export function MusicDetailPage({
           <span>{fmt(duration || music.duration)}</span>
         </div>
       </div>
+
+      <PlaybackLevels scope="song" />
 
       <div className="player-block">
         <div className="player-utils">

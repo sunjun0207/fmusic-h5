@@ -1,4 +1,10 @@
+import { API_PREFIX, isKuwoMediaUrl, proxyDownloadUrl } from './source'
+
 const HASH_PREFIX = '#dl='
+
+function isDownloadUrl(url: string): boolean {
+  return url.startsWith('/api-fmusic-pomelo7-server/') || isKuwoMediaUrl(url)
+}
 
 export type PendingDownload = {
   url: string
@@ -17,11 +23,22 @@ export function trackExt(quality: string, format?: string): string {
   return 'mp3'
 }
 
+const AUDIO_QUALITY_TAG: Record<string, string> = {
+  '128kmp3': '标准 128K',
+  '320kmp3': '高品 320K',
+  flac: '无损 FLAC',
+}
+
 export function qualityLabel(quality: string): string {
   const text = quality.trim()
   if (/^mv-/i.test(text)) return `MV ${text.slice(3)}`
   if (/^mv$/i.test(text)) return 'MV'
-  return text
+  return AUDIO_QUALITY_TAG[text.toLowerCase()] ?? text
+}
+
+/** 和音质面板上的名称一致，写进「歌名-歌手-音质」。 */
+export function audioQualityTag(quality: string): string {
+  return AUDIO_QUALITY_TAG[quality.trim().toLowerCase()] ?? ''
 }
 
 function cleanPart(raw: string): string {
@@ -63,7 +80,8 @@ export function trackFilename(title: string, artist: string, ext: string, tag?: 
 
 export function taskFilename(task: { title: string; artist: string; quality: string }): string {
   const ext = trackExt(task.quality)
-  const tag = /^mv-/i.test(task.quality.trim()) ? task.quality.trim().replace(/^mv-/i, '') : ''
+  const raw = task.quality.trim()
+  const tag = /^mv-/i.test(raw) ? raw.replace(/^mv-/i, '') : audioQualityTag(raw)
   return trackFilename(task.title, task.artist, ext, tag || undefined)
 }
 
@@ -114,9 +132,25 @@ function isMediaPayload(bytes: Uint8Array, contentType: string): boolean {
   return false
 }
 
+function openDirectFile(url: string, filename: string) {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.target = '_blank'
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 export async function saveTrackFile(url: string, filename: string): Promise<number> {
-  if (!url.startsWith('/api-fmusic-pomelo7-server/')) throw new Error('下载地址无效')
-  const res = await fetch(url)
+  if (!isDownloadUrl(url)) throw new Error('下载地址无效')
+  const target = proxyDownloadUrl(url)
+  if (!target.startsWith(`${API_PREFIX}/`)) {
+    openDirectFile(url, filename)
+    return 0
+  }
+  const res = await fetch(target)
   if (!res.ok) throw new Error('下载失败')
   const bytes = new Uint8Array(await res.arrayBuffer())
   const contentType = res.headers.get('content-type') ?? ''

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { coverUrl, getComments, getLyric, getMvUrl, getPlayMeta, postDownload, posterList, smallerImageUrl, toProxyAudioUrl } from '../lib/api'
-import { formatBytes, requestDownload, trackExt, trackFilename } from '../lib/download'
+import { audioQualityTag, formatBytes, requestDownload, trackExt, trackFilename } from '../lib/download'
 import { PLAY_MODE_LABEL } from '../lib/playback'
 import { getSettings, getShowLyric, isFavorite, saveShowLyric, toggleFavorite, upsertDownload } from '../lib/storage'
 import type { DownloadTask, LyricLine, MusicItem, PlayMode, QualityOption, SongComment } from '../lib/types'
@@ -9,6 +9,7 @@ import { PlaybackLevels, usePlaybackLevels } from '../components/LevelSlider'
 import { DanmakuLayer } from '../components/DanmakuLayer'
 import { DanmakuSwitch, useDanmakuSetting } from '../components/DanmakuSwitch'
 import { DownloadSheet } from '../components/DownloadSheet'
+import { PosterPreview, type PosterSlide } from '../components/PosterPreview'
 import { LyricView } from '../components/LyricView'
 
 function BackButton({ onBack, light = false }: { onBack: () => void; light?: boolean }) {
@@ -111,6 +112,7 @@ export function MusicDetailPage({
   const [lyricStatus, setLyricStatus] = useState<'loading' | 'ready' | 'empty'>('empty')
   const [lyricOpen, setLyricOpen] = useState(() => getShowLyric())
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [dlLoading, setDlLoading] = useState(false)
   const [msg, setMsg] = useState('')
   const [fav, setFav] = useState(() => isFavorite(music.id))
@@ -194,16 +196,17 @@ export function MusicDetailPage({
     setPosterSrc({})
     setDragX(0)
     setDragging(false)
+    setPreviewIndex(null)
   }, [music.id])
 
   useEffect(() => {
-    if (posters.length < 2) return
+    if (posters.length < 2 || previewIndex !== null) return
     const timer = window.setInterval(() => {
       if (draggingRef.current) return
       setPosterIndex((index) => (index + 1) % posters.length)
     }, 4000)
     return () => window.clearInterval(timer)
-  }, [music.id, posters.length, posterClock])
+  }, [music.id, posters.length, posterClock, previewIndex])
 
   useEffect(() => {
     let cancelled = false
@@ -285,12 +288,13 @@ export function MusicDetailPage({
     setBrokenPosters((list) => (list.includes(poster) ? list : [...list, poster]))
   }
 
-  const openLyricFromPoster = () => {
+  const openPoster = () => {
     if (swipedRef.current) {
       swipedRef.current = false
       return
     }
-    toggleLyric()
+    if (!posters.length) return
+    setPreviewIndex(posterIndex % posters.length)
   }
 
   const toggleLyric = () => {
@@ -337,11 +341,22 @@ export function MusicDetailPage({
       }
       upsertDownload(task)
       void postDownload(task)
-      const filename = trackFilename(music.title, music.artist, trackExt(option.id, meta.format))
+      const filename = trackFilename(
+        music.title,
+        music.artist,
+        trackExt(option.id, meta.format),
+        audioQualityTag(option.id),
+      )
       setSheetOpen(false)
       setMsg('正在准备下载…')
       const mode = await requestDownload(fileUrl, filename)
-      setMsg(mode.mode === 'started' ? `已开始下载 ${filename}（${formatBytes(mode.bytes)}）` : '')
+      setMsg(
+        mode.mode === 'started'
+          ? mode.bytes > 0
+            ? `已开始下载 ${filename}（${formatBytes(mode.bytes)}）`
+            : `已开始下载 ${filename}`
+          : '',
+      )
     } catch (e) {
       setMsg(e instanceof Error ? e.message : '获取下载地址失败')
     } finally {
@@ -351,6 +366,10 @@ export function MusicDetailPage({
 
   const activePoster = posterIndex % Math.max(posters.length, 1)
   const src = posters[0] || coverUrl(music.image, settings.posterSize)
+  const posterSlides: PosterSlide[] = posters.map((poster) => ({
+    src: posterSrc[poster] || poster,
+    kind: poster.includes('/starheads/') ? '歌手' : '封面',
+  }))
 
   return (
     <div className={`detail-page${lyricOpen ? ' is-lyric' : ''}`}>
@@ -386,12 +405,12 @@ export function MusicDetailPage({
             className="detail-cover-wrap"
             role="button"
             tabIndex={0}
-            aria-label="显示歌词"
-            onClick={openLyricFromPoster}
+            aria-label="查看图片"
+            onClick={openPoster}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault()
-                toggleLyric()
+                openPoster()
               }
             }}
           >
@@ -604,6 +623,17 @@ export function MusicDetailPage({
             onMore={() => void loadMoreComments()}
           />
         </div>
+      ) : null}
+
+      {previewIndex !== null && posterSlides.length ? (
+        <PosterPreview
+          slides={posterSlides}
+          index={Math.min(previewIndex, posterSlides.length - 1)}
+          title={music.title}
+          artist={music.artist}
+          onIndex={setPreviewIndex}
+          onClose={() => setPreviewIndex(null)}
+        />
       ) : null}
 
       <DownloadSheet

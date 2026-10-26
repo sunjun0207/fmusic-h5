@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { coverUrl, getComments, postDownload, toProxyAudioUrl } from '../lib/api'
+import { Pending } from './Pending'
 import { DanmakuLayer } from './DanmakuLayer'
 import { DanmakuSwitch, useDanmakuSetting } from './DanmakuSwitch'
 import { PlaybackLevels, usePlaybackLevels } from './LevelSlider'
@@ -246,7 +247,13 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       upsertDownload(task)
       void postDownload(task)
       const mode = await requestDownload(fileUrl, filename)
-      setMessage(mode.mode === 'started' ? `已开始下载 ${filename}（${formatBytes(mode.bytes)}）` : '请用浏览器打开后保存')
+      setMessage(
+        mode.mode === 'started'
+          ? mode.bytes > 0
+            ? `已开始下载 ${filename}（${formatBytes(mode.bytes)}）`
+            : `已开始下载 ${filename}`
+          : '请用浏览器打开后保存',
+      )
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '下载失败')
     } finally {
@@ -301,7 +308,9 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
             onEnded={() => setPaused(true)}
           />
         ) : (
-          <div className="mv-loading">{loading ? '正在获取 MV…' : 'MV 准备中'}</div>
+          <div className="mv-loading">
+            <Pending text={loading ? '正在获取 MV…' : 'MV 准备中'} tone="dark" />
+          </div>
         )}
         <div className="mv-dim" style={{ opacity: (100 - brightness) / 100 }} />
         <DanmakuLayer comments={comments} enabled={danmakuOn} style={danmakuBox} />

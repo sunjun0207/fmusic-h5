@@ -68,6 +68,13 @@ export default defineConfig(({ mode }) => {
     changeOrigin: true,
     rewrite: (p) => p.replace(new RegExp(`^${prefix}`), replaceWith),
     ...(headers ? { headers } : {}),
+    configure: (proxy) => {
+      proxy.on('proxyRes', (proxyRes) => {
+        proxyRes.headers['access-control-allow-origin'] = '*'
+        proxyRes.headers['access-control-allow-methods'] = 'GET, HEAD, POST, OPTIONS'
+        proxyRes.headers['access-control-allow-headers'] = 'Origin, Accept, Content-Type, Range, Cache-Control, Pragma'
+      })
+    },
   })
 
   return {

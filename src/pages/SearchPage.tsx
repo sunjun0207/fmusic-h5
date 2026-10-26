@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Pending } from '../components/Pending'
 import { SongRow } from '../components/SongRow'
 import { postSearch, searchKey, searchMusic } from '../lib/api'
 import {
@@ -27,6 +28,7 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
   const [error, setError] = useState('')
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const loadingMoreRef = useRef(false)
@@ -49,10 +51,12 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
     if (q.length < 1 || q === query) {
       suggestSeq.current += 1
       setSuggests([])
+      setSuggesting(false)
       return
     }
     const seq = ++suggestSeq.current
     const timer = window.setTimeout(() => {
+      setSuggesting(true)
       searchKey(q)
         .then((list) => {
           if (seq !== suggestSeq.current) return
@@ -61,6 +65,9 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
         .catch(() => {
           if (seq !== suggestSeq.current) return
           setSuggests([])
+        })
+        .finally(() => {
+          if (seq === suggestSeq.current) setSuggesting(false)
         })
     }, 160)
     return () => window.clearTimeout(timer)
@@ -196,14 +203,14 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
 
       {drafting && suggests.length > 0 ? (
         <div className="suggest-list" role="listbox">
-          {suggests.slice(0, 8).map((s) => (
+          {suggests.map((s) => (
             <button key={s} type="button" className="suggest-item" role="option" onClick={() => void runSearch(s)}>
               {s}
             </button>
           ))}
         </div>
       ) : null}
-      {drafting && suggests.length === 0 ? <div className="suggest-pending">正在联想…</div> : null}
+      {drafting && suggesting ? <Pending text="正在联想…" layout="inline" className="suggest-pending" /> : null}
 
       {!drafting && !results.length && !loading ? (
         <>
@@ -243,7 +250,7 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
         </>
       ) : null}
 
-      {!drafting && loading ? <div className="loading">搜索中…</div> : null}
+      {!drafting && loading ? <Pending text="搜索中…" /> : null}
       {!drafting && error && !loading ? <div className="empty">{error}</div> : null}
 
       {!drafting
@@ -260,7 +267,7 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
 
       {!drafting && results.length > 0 ? (
         <div ref={sentinelRef} className="list-sentinel">
-          {loadingMore ? '加载更多…' : hasMore ? '上拉加载更多' : '没有更多了'}
+          {loadingMore ? <Pending text="加载更多…" layout="inline" /> : hasMore ? '上拉加载更多' : '没有更多了'}
         </div>
       ) : null}
     </div>

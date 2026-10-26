@@ -1,3 +1,4 @@
+import { Pending } from './Pending'
 import type { SongComment } from '../lib/types'
 
 type Props = {
@@ -62,7 +63,7 @@ export function CommentList({ comments, total, status, loadingMore, onMore }: Pr
           {total > 0 ? <span>{total}</span> : null}
         </div>
       </div>
-      {status === 'loading' ? <p className="comment-note">评论加载中…</p> : null}
+      {status === 'loading' ? <Pending text="评论加载中…" layout="inline" /> : null}
       {status === 'error' ? <p className="comment-note">评论暂时没有加载出来</p> : null}
       {status === 'empty' ? <p className="comment-note">还没有评论</p> : null}
       <ul className="comment-list">
@@ -75,7 +76,18 @@ export function CommentList({ comments, total, status, loadingMore, onMore }: Pr
       </ul>
       {status === 'ready' && comments.length < total ? (
         <button type="button" className="comment-more" onClick={onMore} disabled={loadingMore}>
-          {loadingMore ? '加载中…' : '更多评论'}
+          {loadingMore ? (
+            <>
+              <span className="pending-dots" aria-hidden>
+                <i />
+                <i />
+                <i />
+              </span>
+              加载中…
+            </>
+          ) : (
+            '更多评论'
+          )}
         </button>
       ) : null}
     </section>

@@ -384,7 +384,9 @@ export default function App() {
     audioRef.current = audio
 
     const onTime = () => setCurrentTime(audio.currentTime)
-    const onMeta = () => setDuration(audio.duration || 0)
+    const onMeta = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) setDuration(audio.duration)
+    }
     const onPlay = () => {
       if (mvActiveRef.current) {
         holdSong()
@@ -426,6 +428,7 @@ export default function App() {
 
     audio.addEventListener('timeupdate', onTime)
     audio.addEventListener('loadedmetadata', onMeta)
+    audio.addEventListener('durationchange', onMeta)
     audio.addEventListener('play', onPlay)
     audio.addEventListener('playing', onPlaying)
     audio.addEventListener('pause', onPause)
@@ -444,6 +447,7 @@ export default function App() {
       window.removeEventListener(LEVELS_EVENT, syncVolume)
       audio.removeEventListener('timeupdate', onTime)
       audio.removeEventListener('loadedmetadata', onMeta)
+      audio.removeEventListener('durationchange', onMeta)
       audio.removeEventListener('play', onPlay)
       audio.removeEventListener('playing', onPlaying)
       audio.removeEventListener('pause', onPause)

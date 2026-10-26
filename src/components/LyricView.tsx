@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
+import { Pending } from './Pending'
 import type { LyricLine } from '../lib/types'
 
 type Props = {
@@ -78,7 +79,7 @@ export function LyricView({ lines, status, current, onSeek }: Props) {
         }}
       >
         <div className="lyric-pad" aria-hidden="true" />
-        {status === 'loading' ? <p className="lyric-empty">正在加载歌词…</p> : null}
+        {status === 'loading' ? <Pending text="正在加载歌词…" tone="dark" /> : null}
         {status === 'empty' ? <p className="lyric-empty">暂无歌词</p> : null}
         {status === 'ready'
           ? lines.map((line, index) => {

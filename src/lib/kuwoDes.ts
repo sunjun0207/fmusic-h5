@@ -1,3 +1,5 @@
+import { endpoint } from './source'
+
 /*
   Browser port of KuwoDES (SoftEncryption).
   Thanks to
@@ -240,7 +242,7 @@ export const buildPlain = (rid: string, format = 'mp3', br?: string): string => 
 
 export const buildNmobiPath = (rid: string, format = 'mp3', br = '320kmp3'): string => {
   const q = encryptQuery(buildPlain(rid, format, br || undefined))
-  return `/api-fmusic-pomelo7-server/kw-nmobi/mobi.s?f=kuwo&q=${encodeURIComponent(q)}`
+  return endpoint('nmobi', `/mobi.s?f=kuwo&q=${encodeURIComponent(q)}`)
 }
 
 /** 酷我只认 quality=。不带时固定回落到约 512kbps 的 MP4。 */
@@ -249,5 +251,5 @@ export const buildMvPlain = (rid: string, quality = 'MP4UL'): string =>
 
 export const buildMvNmobiPath = (rid: string, quality = 'MP4UL'): string => {
   const q = encryptQuery(buildMvPlain(rid, quality))
-  return `/api-fmusic-pomelo7-server/kw-nmobi/mobi.s?f=kuwo&q=${encodeURIComponent(q)}`
+  return endpoint('nmobi', `/mobi.s?f=kuwo&q=${encodeURIComponent(q)}`)
 }

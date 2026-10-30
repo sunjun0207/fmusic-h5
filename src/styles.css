@@ -2702,19 +2702,6 @@ img {
   font-size: 1.16rem;
 }
 
-.profile-copy em {
-  display: inline-block;
-  margin-top: 4px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  font-family: var(--font-display);
-  font-style: normal;
-  font-size: 0.62rem;
-  letter-spacing: 0.1em;
-  color: var(--teal-deep);
-  background: rgba(26, 166, 160, 0.1);
-}
-
 .profile-copy p {
   margin: 6px 0 0;
   font-size: 0.76rem;

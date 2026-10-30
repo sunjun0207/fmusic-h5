@@ -14,7 +14,6 @@ import {
   getMyPlaylists,
   getRecentPlays,
   getSavedPlaylists,
-  getUid,
 } from '../lib/storage'
 import type { View } from '../lib/types'
 
@@ -53,8 +52,6 @@ export function MinePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [app.libraryVersion],
   )
-  const uid = useMemo(() => getUid().replace(/^h5-/, '').slice(0, 8).toUpperCase(), [])
-
   const entries: { id: string; label: string; count: number; icon: ReactNode; view: View }[] = [
     { id: 'favorite', label: '我的收藏', count: library.favorites.length, icon: <HeartIcon size={22} />, view: { kind: 'favorite' } },
     { id: 'recent', label: '最近播放', count: library.recent.length, icon: <ClockIcon size={22} />, view: { kind: 'recent' } },
@@ -71,7 +68,6 @@ export function MinePage() {
         </span>
         <div className="profile-copy">
           <strong>聆听者</strong>
-          <em>ID {uid}</em>
           <p>{PAGE.mine.headline}</p>
         </div>
         <dl className="profile-stats">

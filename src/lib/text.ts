@@ -73,6 +73,25 @@ export function cleanArtist(input: string): string {
   return text.replace(/、{2,}/g, '、').replace(/^、|、$/g, '').trim()
 }
 
+/** 榜单名、简介和歌单介绍里的曲库品牌不展示。 */
+export function stripSourceBrand(input: string): string {
+  return input
+    .replace(/在酷我音乐平台/g, '在平台')
+    .replace(/在酷我音乐播放/g, '播放')
+    .replace(/酷我音乐平台/g, '平台')
+    .replace(/酷我平台/g, '平台')
+    .replace(/酷我音乐/g, '')
+    .replace(/酷我会员/g, '会员')
+    .replace(/酷我用户/g, '')
+    .replace(/酷我/g, '')
+    .replace(/\bKUWO\b/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/([，,、])\s*(?=[，,、。])/g, '')
+    .replace(/^[，,、。·\s]+/, '')
+    .replace(/[，,、·\s]+$/, '')
+    .trim()
+}
+
 export function normalizeMusic(item: MusicItem): MusicItem {
   return {
     ...item,

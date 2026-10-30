@@ -3,7 +3,7 @@ import { momentStation, type Station } from './brand'
 import { mvQualitiesFromFormats } from './quality'
 import { apiFetch, endpoint } from './source'
 import { getFavorites, getRecentPlays, getUid, readDailyMix, saveDailyMix } from './storage'
-import { cleanArtist, cleanText } from './text'
+import { cleanArtist, cleanText, stripSourceBrand } from './text'
 import type {
   ArtistCard,
   ChartGroup,
@@ -82,6 +82,11 @@ function text(value: unknown): string {
   return cleanText(String(value ?? ''))
 }
 
+/** 榜单、歌单这些展示文案去掉曲库品牌，歌名和歌手名不动。 */
+function catalogText(value: unknown): string {
+  return stripSourceBrand(text(value))
+}
+
 function songId(raw: Record<string, unknown>): string {
   return String(raw.rid ?? raw.id ?? raw.musicrid ?? '').replace(/^MUSIC_/, '')
 }
@@ -128,16 +133,17 @@ export function getChartMenu(): Promise<ChartGroup[]> {
     )
     return groups
       .map((group) => ({
-        name: text(group.name),
+        name: catalogText(group.name),
         list: (group.list ?? [])
           .map((raw): ChartInfo | null => {
             const id = String(raw.sourceid ?? raw.id ?? '')
             if (!id || NON_MUSIC_CHARTS.has(id)) return null
             return {
               id,
-              name: text(raw.name),
-              intro: text(raw.intro),
-              pic: String(raw.pic ?? ''),
+              name: catalogText(raw.name) || '榜单',
+              intro: catalogText(raw.intro),
+              // 官方封面图带有曲库品牌字样，页面改用歌曲封面。
+              pic: '',
               pub: text(raw.pub),
             }
           })
@@ -171,11 +177,11 @@ function mapPlaylistCard(raw: Record<string, unknown>): PlaylistCard | null {
   if (!id) return null
   return {
     id,
-    name: text(raw.name) || '未命名歌单',
+    name: catalogText(raw.name) || '未命名歌单',
     pic: playlistPic(String(raw.img ?? raw.pic ?? raw.hts_pic ?? '')),
     playCount: Number(raw.listencnt ?? raw.playcnt) || 0,
     total: Number(raw.total ?? raw.songnum) || 0,
-    creator: text(raw.uname ?? raw.nickname),
+    creator: catalogText(raw.uname ?? raw.nickname),
   }
 }
 
@@ -241,15 +247,15 @@ export function getPlaylistDetail(id: string, pn = 0): Promise<PlaylistDetail> {
       })
     return {
       id,
-      name: text(data.title) || '未命名歌单',
+      name: catalogText(data.title) || '未命名歌单',
       pic: playlistPic(String(data.pic ?? '')),
       playCount: Number(data.playnum) || 0,
       total: Number(data.total) || songs.length,
-      creator: text(data.uname),
-      info: text(data.info),
+      creator: catalogText(data.uname),
+      info: catalogText(data.info),
       tags: String(data.tag ?? '')
         .split(/[,;，]/)
-        .map((tag) => tag.trim())
+        .map((tag) => catalogText(tag))
         .filter(Boolean),
       songs,
     }

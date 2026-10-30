@@ -959,7 +959,7 @@ export default function App() {
       case 'search':
         return null
       case 'chart':
-        return <ChartView id={view.id} name={view.name} pic={view.pic} active={active} />
+        return <ChartView id={view.id} name={view.name} active={active} />
       case 'playlist':
         return <PlaylistView id={view.id} name={view.name} pic={view.pic} active={active} />
       case 'pick':

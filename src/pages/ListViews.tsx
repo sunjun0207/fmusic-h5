@@ -37,7 +37,7 @@ import { useRemote } from '../lib/useRemote'
 
 type Ranked = { song: MusicItem; trend?: Trend }
 
-export function ChartView({ id, name, pic, active }: { id: string; name: string; pic?: string; active: boolean }) {
+export function ChartView({ id, name, active }: { id: string; name: string; active: boolean }) {
   const head = useRemote(`chart:${id}:1`, () => getChartSongs(id))
   const paged = usePaged<Ranked>(
     `chart-view:${id}`,
@@ -60,7 +60,7 @@ export function ChartView({ id, name, pic, active }: { id: string; name: string;
     <div>
       <ListHero
         title={name}
-        cover={pic ? coverUrl(pic) : firstCover(list)}
+        cover={firstCover(list)}
         eyebrow="TOP CHARTS"
         meta={head.data?.pub ? `${head.data.pub} 更新 · 共 ${head.data.total} 首` : PAGE.charts.headline}
         desc={PAGE.charts.desc}

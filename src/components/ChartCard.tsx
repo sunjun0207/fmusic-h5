@@ -11,14 +11,15 @@ export function ChartCard({ info, wide = false }: { info: ChartInfo; wide?: bool
   const app = useApp()
   const { data } = useRemote(`chart:${info.id}:1`, () => getChartSongs(info.id))
   const top3 = data?.list.slice(0, 3) ?? []
+  const cover = top3.find((song) => song.image)?.image
   return (
     <button
       type="button"
       className={`chart-card${wide ? ' is-wide' : ''}`}
-      onClick={() => app.open({ kind: 'chart', id: info.id, name: info.name, pic: info.pic })}
+      onClick={() => app.open({ kind: 'chart', id: info.id, name: info.name })}
     >
       <span className="chart-card-cover">
-        <Img src={coverUrl(info.pic)} label={info.name} />
+        <Img src={cover ? coverUrl(cover, 300) : undefined} label={info.name} />
         {info.pub ? <em>{info.pub}</em> : null}
       </span>
       <span className="chart-card-body">

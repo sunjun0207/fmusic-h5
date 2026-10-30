@@ -78,13 +78,16 @@ function resizeKuwoImage(url: string, size?: number): string {
   return url.replace(/(\/(?:albumcover|starheads)\/)\d+\//, `$1${size}/`)
 }
 
+/** 本站 /kw-img 指向 img1，img1-4 内容相同。榜单图在 zimg、横幅在 kwimg，只能直接用 https。 */
+const SHARED_IMAGE_HOST = /^img\d\.(?:kwcdn\.)?kuwo\.cn$/i
+
 export function coverUrl(path?: string, size?: number): string {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) {
     try {
       const u = new URL(path)
       if (u.hostname.includes('kuwo.cn')) {
-        if (u.hostname.startsWith('img4.') || u.pathname.includes('/wmvpic/')) {
+        if (u.hostname.startsWith('img4.') || u.pathname.includes('/wmvpic/') || !SHARED_IMAGE_HOST.test(u.hostname)) {
           u.protocol = 'https:'
           return u.toString()
         }
@@ -156,12 +159,18 @@ async function readSearchText(url: string): Promise<Record<string, unknown>> {
   }
 }
 
+/** 搜索接口没有跨域头：直连用 JSONP，开代理时读本站转发的文本。歌曲和歌单共用。 */
+export async function searchQuery(params: Record<string, string>): Promise<Record<string, unknown>> {
+  const path = `/r.s?${new URLSearchParams(params)}`
+  return useProxy ? readSearchText(endpoint('search', path)) : jsonp<Record<string, unknown>>(endpoint('search', path))
+}
+
 export async function searchMusic(
   keyword: string,
   pn = 0,
   rn = 20,
 ): Promise<SearchPageResult> {
-  const qs = new URLSearchParams({
+  const data = await searchQuery({
     all: keyword,
     ft: 'music',
     client: 'kt',
@@ -172,8 +181,6 @@ export async function searchMusic(
     encoding: 'utf8',
     vipver: '1',
   })
-  const path = `/r.s?${qs}`
-  const data = useProxy ? await readSearchText(endpoint('search', path)) : await jsonp<Record<string, unknown>>(endpoint('search', path))
   const list = (pick(data, 'abslist', 'list') as Record<string, unknown>[] | undefined) ?? []
   const total = Number(pick(data, 'TOTAL', 'total', 'HIT', 'hit') ?? list.length) || 0
   return {
@@ -529,6 +536,27 @@ export async function getComments(
     .map((item, index) => mapComment(item, index))
     .filter((item): item is SongComment => !!item)
   return { list, total: Number(data.total) || list.length }
+}
+
+/** 精选热评，和评论区同一个接口，按点赞排好序。 */
+export async function getHotComments(rid: string, rows = 2): Promise<SongComment[]> {
+  const qs = new URLSearchParams({
+    type: 'get_rec_comment',
+    f: 'web',
+    page: '1',
+    rows: String(rows),
+    digest: '15',
+    sid: rid,
+    uid: '0',
+    prod: 'newWeb',
+    httpsStatus: '1',
+  })
+  const res = await apiFetch(endpoint('comment', `/com.s?${qs}`))
+  if (!res.ok) throw new Error('热评加载失败')
+  const data = (await res.json()) as { rows?: Array<Record<string, unknown>> }
+  return (data.rows ?? [])
+    .map((item, index) => mapComment(item, index))
+    .filter((item): item is SongComment => !!item)
 }
 
 export async function postDownload(task: Pick<DownloadTask, 'mid' | 'title' | 'artist' | 'quality' | 'url'>): Promise<void> {

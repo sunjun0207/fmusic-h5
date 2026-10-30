@@ -1,6 +1,6 @@
-# 聆听jun.sun（fmusic-h5）
+# 音浪 SOUNDWAVE（fmusic-h5）
 
-Vite + React + TypeScript 网页听歌：搜歌 / 播放 / 歌词 / 下载记录，酷我直连 + 自有 API。
+听见热爱 · 遇见共鸣。Vite + React + TypeScript 移动端潮流音乐社区：每日推荐 / 私人专属 / 排行榜 / 歌单广场 / 音乐电台 / 热评社区 / 自建歌单，以及搜歌、播放、歌词、MV、下载，数据来自酷我曲库 + 自有 API。
 
 ## 快速开始
 
@@ -61,6 +61,7 @@ npm run preview
 | `VITE_BASE` | 部署基础路径，如 `/` 或 `/fmusic/` | `vite.config.ts` → `base` |
 | `VITE_SOURCEMAP` | 是否生成 sourcemap（`true` / `false`） | `vite.config.ts` → `build.sourcemap` |
 | `VITE_DEV_PORT` | 开发服务器端口 | `vite.config.ts` → `server.port` |
+| `VITE_USE_PROXY` | `false` 直连曲库；`true` 走本站 `/api-fmusic-pomelo7-server` 代理 | `src/lib/source.ts` |
 | `VITE_API_TARGET` | 自有 API 后端源，`/api-fmusic-pomelo7-server/api/*` 的代理目标 | `vite.config.ts` → `server.proxy` |
 | `VITE_KW_SEARCH_TARGET` | 酷我搜索服务 | 同上 |
 | `VITE_KW_OPENAPI_TARGET` | 酷我 openapi（联想词 / 歌词） | 同上 |
@@ -68,6 +69,8 @@ npm run preview
 | `VITE_KW_IMG_TARGET` | 酷我封面图 | 同上 |
 | `VITE_KW_CDN_TARGET` | 酷我音频 CDN | 同上 |
 | `VITE_KW_COMMENT_TARGET` | 酷我评论 | 同上 |
+| `VITE_KW_WAPI_TARGET` | 酷我榜单、歌单广场、歌手 | 同上 |
+| `VITE_KW_NPL_TARGET` | 酷我歌单详情 | 同上 |
 
 ### 加载规则与注意事项
 
@@ -204,8 +207,10 @@ docker compose -f docker-compose.pro.yml build \
 |------|------|
 | `src/lib/kuwoDes.ts` | 浏览器版 KuwoDES（密钥 `ylzsxkwm`），生成 nmobi `q=` |
 | `src/lib/api.ts` | 搜索 / 联想 / 歌词 / 播放元数据 / 版本公告 / 行为上报 |
-| `src/lib/storage.ts` | localStorage：uid、搜索历史、下载、设置、最近播放 |
-| `src/pages/*` | 首页、搜索、下载、设置、歌曲详情 |
+| `src/lib/discover.ts` | 榜单、歌单、歌手、热评、每日推荐 / 私人专属 / 电台混排 |
+| `src/lib/brand.ts` | 音浪 SOUNDWAVE 品牌文案、精选推荐与电台配置 |
+| `src/lib/storage.ts` | localStorage：uid、搜索历史、下载、设置、最近播放、自建歌单、收藏歌单 |
+| `src/pages/*` | 首页、发现、排行榜、社区、我的、电台、搜索、下载、设置、播放页及各类歌单详情 |
 | `vite.config.ts` | 按 mode 读取 `.env.*`，配置开发代理（绕过浏览器跨域）、`base`、sourcemap |
 | `.env.local` / `.env.dev` / `.env.pro` | 本地 / 测试 / 生产 三套环境变量，见「多环境配置」 |
 | `Dockerfile` / `docker-compose.*.yml` / `docker/` | 容器化构建与部署（Nginx 托管 + 反代 + TLS），见「Docker 部署」 |
@@ -220,7 +225,9 @@ docker compose -f docker-compose.pro.yml build \
 - `/api-fmusic-pomelo7-server/kw-nmobi/*` → `${VITE_KW_NMOBI_TARGET}/*`，默认 `https://nmobi.kuwo.cn/*`（播放地址，需带 `User-Agent: okhttp/3.10.0`）
 - `/api-fmusic-pomelo7-server/kw-img/*` → `${VITE_KW_IMG_TARGET}/*`，默认 `https://img1.kuwo.cn/*`
 - `/api-fmusic-pomelo7-server/kw-cdn/*` → `${VITE_KW_CDN_TARGET}/*`，默认 `http://kw-er.kuwo.cn/*`（音频流）
-- `/api-fmusic-pomelo7-server/kw-comment/*` → `${VITE_KW_COMMENT_TARGET}/*`，默认 `https://ncomment.kuwo.cn/*`（评论、弹幕）
+- `/api-fmusic-pomelo7-server/kw-comment/*` → `${VITE_KW_COMMENT_TARGET}/*`，默认 `https://ncomment.kuwo.cn/*`（评论、弹幕、热评社区）
+- `/api-fmusic-pomelo7-server/kw-wapi/*` → `${VITE_KW_WAPI_TARGET}/*`，默认 `https://wapi.kuwo.cn/*`（榜单、歌单广场、歌手）
+- `/api-fmusic-pomelo7-server/kw-npl/*` → `${VITE_KW_NPL_TARGET}/*`，默认 `https://nplserver.kuwo.cn/*`（歌单详情）
 
 ### 播放地址
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { coverUrl, getComments, postDownload, toProxyAudioUrl } from '../lib/api'
 import { Pending } from './Pending'
 import { DanmakuLayer } from './DanmakuLayer'
@@ -337,6 +337,7 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
           max={duration || 0}
           step={0.1}
           value={Math.min(current, duration || 0)}
+          style={{ '--p': `${duration > 0 ? (Math.min(current, duration) / duration) * 100 : 0}%` } as CSSProperties}
           aria-label="MV 进度"
           disabled={!url}
           onChange={(event) => {

@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { Logo } from '../components/Logo'
 import { APP_VERSION } from '../lib/api'
+import { BRAND, KEYWORDS, STORY } from '../lib/brand'
 import { getSettings, saveSettings } from '../lib/storage'
 import type { AppSettings } from '../lib/types'
 import { QUALITY_OPTIONS } from '../components/DownloadSheet'
@@ -68,10 +70,26 @@ export function SettingPage() {
       </div>
 
       <div className="section-title">关于</div>
+      <section className="about-brand">
+        <Logo size="lg" />
+        <p className="about-motto">{BRAND.motto}</p>
+        <p className="about-tagline">{BRAND.tagline}</p>
+        <p className="about-intro">{BRAND.intro}</p>
+        <ul className="about-keywords">
+          {KEYWORDS.map((item) => (
+            <li key={item.title}>
+              <strong>{item.title}</strong>
+              <span>{item.text}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
       <div className="setting-group">
         <div className="setting-row">
           <div>名称</div>
-          <div className="song-sub">聆听jun.sun</div>
+          <div className="song-sub">
+            {BRAND.name} {BRAND.en}
+          </div>
         </div>
         <div className="setting-row">
           <div>版本</div>
@@ -87,7 +105,8 @@ export function SettingPage() {
           <div>
             <div>说明</div>
             <div className="about-note">
-              这里是一处轻轻的听歌处。你可以寻一句歌词，或一个忽然想起的名字，让旋律在指尖慢慢展开。想再听一遍，就停在这一首；想一路听下去，就交给列表；也可以把顺序交给偶然。最近听过的歌会留下来，正在播放的名单也随时可以翻开。愿每一首都成为一段温柔的停留。
+              {STORY.lines.join('')}
+              {STORY.sign}
             </div>
           </div>
         </div>

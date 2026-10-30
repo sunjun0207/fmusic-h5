@@ -1,8 +1,20 @@
-export type TabId = 'home' | 'search' | 'favorite' | 'download' | 'setting'
+export type TabId = 'home' | 'discover' | 'charts' | 'community' | 'mine'
 
-export type Screen =
-  | { name: 'tabs'; tab: TabId }
-  | { name: 'musicDetail'; music: MusicItem }
+/** 叠在标签页上的二级页面，返回时逐层退出。 */
+export type View =
+  | { kind: 'search' }
+  | { kind: 'chart'; id: string; name: string; pic?: string }
+  | { kind: 'playlist'; id: string; name?: string; pic?: string }
+  | { kind: 'pick'; id: string }
+  | { kind: 'artist'; id: string; name: string; pic?: string }
+  | { kind: 'daily' }
+  | { kind: 'private' }
+  | { kind: 'radio' }
+  | { kind: 'myPlaylist'; id: string }
+  | { kind: 'favorite' }
+  | { kind: 'recent' }
+  | { kind: 'download' }
+  | { kind: 'setting' }
 
 export type MusicItem = {
   id: string
@@ -85,4 +97,64 @@ export type QualityOption = {
   label: string
   format: string
   br: string
+}
+
+export type ChartInfo = {
+  id: string
+  name: string
+  intro: string
+  pic: string
+  pub: string
+}
+
+export type ChartGroup = {
+  name: string
+  list: ChartInfo[]
+}
+
+export type Trend = {
+  dir: 'up' | 'down' | 'same' | 'new'
+  change: number
+}
+
+export type ChartSongs = {
+  list: MusicItem[]
+  trends: Record<string, Trend>
+  total: number
+  pub: string
+}
+
+export type PlaylistCard = {
+  id: string
+  name: string
+  pic: string
+  playCount: number
+  total: number
+  creator: string
+}
+
+export type PlaylistDetail = PlaylistCard & {
+  info: string
+  tags: string[]
+  songs: MusicItem[]
+}
+
+export type ArtistCard = {
+  id: string
+  name: string
+  pic: string
+  fans: number
+  songCount: number
+}
+
+export type MyPlaylist = {
+  id: string
+  name: string
+  createdAt: number
+  songs: MusicItem[]
+}
+
+export type HotComment = {
+  song: MusicItem
+  comments: SongComment[]
 }

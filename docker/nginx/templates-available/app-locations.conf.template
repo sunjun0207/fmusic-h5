@@ -103,6 +103,18 @@ location /api-fmusic-pomelo7-server/kw-comment/ {
     proxy_set_header User-Agent "Mozilla/5.0";
 }
 
+# 酷我榜单 / 歌单广场 / 歌手
+location /api-fmusic-pomelo7-server/kw-wapi/ {
+    proxy_pass ${VITE_KW_WAPI_TARGET}/;
+    include /etc/nginx/snippets/proxy-common.conf;
+}
+
+# 酷我歌单详情
+location /api-fmusic-pomelo7-server/kw-npl/ {
+    proxy_pass ${VITE_KW_NPL_TARGET}/;
+    include /etc/nginx/snippets/proxy-common.conf;
+}
+
 # 未单独配置的 /api-fmusic-pomelo7-server/* 不要回落到 index.html，否则会把网页存成歌曲。
 # nginx 按最长前缀匹配，/api-fmusic-pomelo7-server/ 不会挡住 /api-fmusic-pomelo7-server/api/ 等更长的前缀。
 location /api-fmusic-pomelo7-server/ {

@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { FireIcon, SearchIcon } from '../components/Icons'
 import { Pending } from '../components/Pending'
 import { SongRow } from '../components/SongRow'
 import { postSearch, searchKey, searchMusic } from '../lib/api'
+import { useApp } from '../lib/appContext'
+import { friendlyError, TEXT } from '../lib/brand'
+import { getChartSongs } from '../lib/discover'
 import {
   addSearchHistory,
   clearSearchHistory,
@@ -9,16 +13,51 @@ import {
   removeSearchHistory,
 } from '../lib/storage'
 import type { MusicItem } from '../lib/types'
+import { useRemote } from '../lib/useRemote'
 
 type Props = {
-  onOpenMusic: (item: MusicItem, queue?: MusicItem[]) => void
-  onPlayMv: (item: MusicItem) => void
+  active: boolean
   noMvStamp?: { id: string; token: number } | null
 }
 
 const PAGE_SIZE = 20
 
-export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
+/** 热搜：取飙升榜前十，点一下按歌名搜。 */
+function HotSearch({ onPick }: { onPick: (keyword: string) => void }) {
+  const { data } = useRemote('chart:93:1', () => getChartSongs('93'))
+  const list = data?.list.slice(0, 10) ?? []
+  if (!list.length) return null
+  return (
+    <section className="hot-search">
+      <div className="section-title">
+        热搜榜
+        <span>大家都在搜</span>
+      </div>
+      <ol className="hot-search-list">
+        {list.map((song, index) => (
+          <li key={song.id}>
+            <button type="button" onClick={() => onPick(song.title)}>
+              <b className={index < 3 ? 'is-top' : undefined}>{index + 1}</b>
+              <span>
+                <strong>{song.title}</strong>
+                <em>{song.artist}</em>
+              </span>
+              {index < 3 ? (
+                <i className="hot-tag">
+                  <FireIcon size={11} />热
+                </i>
+              ) : null}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+export function SearchPage({ active, noMvStamp }: Props) {
+  const app = useApp()
+  const inputRef = useRef<HTMLInputElement | null>(null)
   const [keyword, setKeyword] = useState('')
   const [history, setHistory] = useState<string[]>(() => getSearchHistory())
   const [suggests, setSuggests] = useState<string[]>([])
@@ -45,6 +84,12 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
     if (!noMvStamp) return
     setResults((list) => list.map((item) => (item.id === noMvStamp.id ? { ...item, hasMv: false } : item)))
   }, [noMvStamp])
+
+  useEffect(() => {
+    if (!active || query) return
+    const timer = window.setTimeout(() => inputRef.current?.focus({ preventScroll: true }), 120)
+    return () => window.clearTimeout(timer)
+  }, [active, query])
 
   useEffect(() => {
     const q = keyword.trim()
@@ -91,9 +136,9 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
       setResults(list)
       setTotal(t > 0 ? t : list.length < PAGE_SIZE ? list.length : 0)
       setPage(0)
-      if (!list.length) setError('没有找到相关歌曲')
+      if (!list.length) setError(TEXT.searchEmpty)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '搜索失败')
+      setError(friendlyError(e))
       setResults([])
       setTotal(0)
     } finally {
@@ -137,7 +182,7 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
 
   useEffect(() => {
     const el = sentinelRef.current
-    if (!el || !hasMore) return
+    if (!el || !hasMore || !active) return
     const root = el.closest('.app-main') ?? null
     const io = new IntersectionObserver(
       (entries) => {
@@ -147,7 +192,7 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
     )
     io.observe(el)
     return () => io.disconnect()
-  }, [hasMore, loadMore, results.length])
+  }, [hasMore, loadMore, results.length, active])
 
   return (
     <div>
@@ -158,11 +203,9 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
           void runSearch(keyword)
         }}
       >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-          <circle cx="11" cy="11" r="6.5" />
-          <path d="m16 16 4 4" strokeLinecap="round" />
-        </svg>
+        <SearchIcon />
         <input
+          ref={inputRef}
           value={keyword}
           onChange={(e) => {
             const next = e.target.value
@@ -176,7 +219,7 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
               setError('')
             }
           }}
-          placeholder="搜索歌曲 / 歌手"
+          placeholder={TEXT.searchPlaceholder}
           enterKeyHint="search"
           autoCapitalize="off"
           autoCorrect="off"
@@ -212,46 +255,48 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
       ) : null}
       {drafting && suggesting ? <Pending text="正在联想…" layout="inline" className="suggest-pending" /> : null}
 
+      {!drafting && error && !loading ? <div className="empty">{error}</div> : null}
+
       {!drafting && !results.length && !loading ? (
         <>
-          <div className="section-title">
-            搜索历史
-            {history.length ? (
-              <button
-                type="button"
-                onClick={() => {
-                  clearSearchHistory()
-                  setHistory([])
-                }}
-              >
-                <span>清空</span>
-              </button>
-            ) : (
-              <span>暂无</span>
-            )}
-          </div>
-          <div className="chip-wrap">
-            {history.map((h) => (
-              <button
-                key={h}
-                type="button"
-                className="chip"
-                onClick={() => void runSearch(h)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  removeSearchHistory(h)
-                  setHistory(getSearchHistory())
-                }}
-              >
-                {h}
-              </button>
-            ))}
-          </div>
+          {history.length ? (
+            <>
+              <div className="section-title">
+                搜索历史
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearSearchHistory()
+                    setHistory([])
+                  }}
+                >
+                  <span>清空</span>
+                </button>
+              </div>
+              <div className="chip-wrap">
+                {history.map((h) => (
+                  <button
+                    key={h}
+                    type="button"
+                    className="chip"
+                    onClick={() => void runSearch(h)}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      removeSearchHistory(h)
+                      setHistory(getSearchHistory())
+                    }}
+                  >
+                    {h}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+          <HotSearch onPick={(word) => void runSearch(word)} />
         </>
       ) : null}
 
-      {!drafting && loading ? <Pending text="搜索中…" /> : null}
-      {!drafting && error && !loading ? <div className="empty">{error}</div> : null}
+      {!drafting && loading ? <Pending text={TEXT.loading} /> : null}
 
       {!drafting
         ? results.map((item, i) => (
@@ -259,15 +304,18 @@ export function SearchPage({ onOpenMusic, onPlayMv, noMvStamp }: Props) {
               key={`${item.id}-${i}`}
               item={item}
               index={i}
-              onClick={() => onOpenMusic(item, results)}
-              onPlayMv={onPlayMv}
+              showCover
+              active={item.id === app.currentId}
+              onClick={() => app.openMusic(item, results)}
+              onPlayMv={app.playMv}
+              onMore={(song) => app.openSongMenu(song, results)}
             />
           ))
         : null}
 
       {!drafting && results.length > 0 ? (
         <div ref={sentinelRef} className="list-sentinel">
-          {loadingMore ? <Pending text="加载更多…" layout="inline" /> : hasMore ? '上拉加载更多' : '没有更多了'}
+          {loadingMore ? <Pending text={TEXT.loading} layout="inline" /> : hasMore ? '上拉加载更多' : '没有更多了'}
         </div>
       ) : null}
     </div>

@@ -1,6 +1,6 @@
 import { isPosterSize, visibleMvQuality } from './quality'
 import { cleanArtist, cleanText, normalizeMusic } from './text'
-import type { AppSettings, DownloadTask, MusicItem, PlayMode } from './types'
+import type { AppSettings, DownloadTask, MusicItem, MyPlaylist, PlayMode, PlaylistCard } from './types'
 
 const KEYS = {
   uid: 'fmusic_uid',
@@ -12,6 +12,9 @@ const KEYS = {
   favorites: 'fmusic_favorites',
   playMode: 'fmusic_play_mode',
   showLyric: 'fmusic_show_lyric',
+  myPlaylists: 'fmusic_my_playlists',
+  savedPlaylists: 'fmusic_saved_playlists',
+  dailyMix: 'fmusic_daily_mix',
 } as const
 
 function readJson<T>(key: string, fallback: T): T {
@@ -134,6 +137,10 @@ export function addRecentPlay(item: MusicItem) {
   writeJson(KEYS.recentPlays, [next, ...list.filter((song) => song.id !== clean.id)].slice(0, 40))
 }
 
+export function clearRecentPlays() {
+  writeJson(KEYS.recentPlays, [])
+}
+
 export function getFavorites(): MusicItem[] {
   return readJson<MusicItem[]>(KEYS.favorites, []).map(normalizeMusic)
 }
@@ -204,4 +211,110 @@ export function rememberMusicMv(id: string, hasMv: boolean, mvPic?: string) {
   if (recent.changed) writeJson(KEYS.recentPlays, recent.next)
   const favorites = patch(getFavorites())
   if (favorites.changed) writeJson(KEYS.favorites, favorites.next)
+  let listsChanged = false
+  const lists = getMyPlaylists().map((list) => {
+    const songs = patch(list.songs)
+    if (!songs.changed) return list
+    listsChanged = true
+    return { ...list, songs: songs.next }
+  })
+  if (listsChanged) writeJson(KEYS.myPlaylists, lists)
+}
+
+export function getMyPlaylists(): MyPlaylist[] {
+  return readJson<MyPlaylist[]>(KEYS.myPlaylists, []).map((list) => ({
+    ...list,
+    name: cleanText(list.name) || '我的专属歌单',
+    songs: (list.songs ?? []).map(normalizeMusic),
+  }))
+}
+
+export function getMyPlaylist(id: string): MyPlaylist | undefined {
+  return getMyPlaylists().find((list) => list.id === id)
+}
+
+export function createMyPlaylist(name: string): MyPlaylist {
+  const list: MyPlaylist = {
+    id: `pl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+    name: cleanText(name).slice(0, 40) || '我的专属歌单',
+    createdAt: Date.now(),
+    songs: [],
+  }
+  writeJson(KEYS.myPlaylists, [list, ...getMyPlaylists()].slice(0, 100))
+  return list
+}
+
+export function renameMyPlaylist(id: string, name: string) {
+  const clean = cleanText(name).slice(0, 40)
+  if (!clean) return
+  writeJson(
+    KEYS.myPlaylists,
+    getMyPlaylists().map((list) => (list.id === id ? { ...list, name: clean } : list)),
+  )
+}
+
+export function deleteMyPlaylist(id: string) {
+  writeJson(
+    KEYS.myPlaylists,
+    getMyPlaylists().filter((list) => list.id !== id),
+  )
+}
+
+/** 已在歌单里时返回 false。 */
+export function addToMyPlaylist(id: string, item: MusicItem): boolean {
+  const clean = normalizeMusic(item)
+  let added = false
+  const lists = getMyPlaylists().map((list) => {
+    if (list.id !== id || list.songs.some((song) => song.id === clean.id)) return list
+    added = true
+    return { ...list, songs: [clean, ...list.songs].slice(0, 500) }
+  })
+  if (added) writeJson(KEYS.myPlaylists, lists)
+  return added
+}
+
+export function removeFromMyPlaylist(id: string, songId: string) {
+  writeJson(
+    KEYS.myPlaylists,
+    getMyPlaylists().map((list) =>
+      list.id === id ? { ...list, songs: list.songs.filter((song) => song.id !== songId) } : list,
+    ),
+  )
+}
+
+export function getSavedPlaylists(): PlaylistCard[] {
+  return readJson<PlaylistCard[]>(KEYS.savedPlaylists, [])
+}
+
+export function isSavedPlaylist(id: string): boolean {
+  return getSavedPlaylists().some((item) => item.id === id)
+}
+
+export function toggleSavedPlaylist(card: PlaylistCard): boolean {
+  const list = getSavedPlaylists()
+  if (list.some((item) => item.id === card.id)) {
+    writeJson(
+      KEYS.savedPlaylists,
+      list.filter((item) => item.id !== card.id),
+    )
+    return false
+  }
+  writeJson(KEYS.savedPlaylists, [card, ...list].slice(0, 200))
+  return true
+}
+
+export type DailyMixRecord = {
+  date: string
+  list: MusicItem[]
+  basedOn: string[]
+}
+
+export function readDailyMix(): DailyMixRecord | null {
+  const data = readJson<DailyMixRecord | null>(KEYS.dailyMix, null)
+  if (!data?.date || !Array.isArray(data.list)) return null
+  return { ...data, list: data.list.map(normalizeMusic), basedOn: data.basedOn ?? [] }
+}
+
+export function saveDailyMix(record: DailyMixRecord) {
+  writeJson(KEYS.dailyMix, record)
 }

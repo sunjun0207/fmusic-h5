@@ -7,7 +7,7 @@ export const API_PREFIX = '/api-fmusic-pomelo7-server'
 const KUWO_HOST = /(^|\.)kuwo\.cn$/i
 const KUWO_AUDIO_HOST = /^kw-[a-z0-9-]+\.kuwo\.cn$/i
 
-type Channel = 'api' | 'search' | 'openapi' | 'nmobi' | 'img' | 'comment'
+type Channel = 'api' | 'search' | 'openapi' | 'nmobi' | 'img' | 'comment' | 'wapi' | 'npl'
 
 function directBase(raw: string | undefined, fallback: string): string {
   const base = (raw || fallback).replace(/\/$/, '')
@@ -24,6 +24,8 @@ const DIRECT: Record<Channel, string> = {
   nmobi: directBase(env.VITE_KW_NMOBI_TARGET, 'https://nmobi.kuwo.cn'),
   img: directBase(env.VITE_KW_IMG_TARGET, 'https://img1.kuwo.cn'),
   comment: directBase(env.VITE_KW_COMMENT_TARGET, 'https://ncomment.kuwo.cn'),
+  wapi: directBase(env.VITE_KW_WAPI_TARGET, 'https://wapi.kuwo.cn'),
+  npl: directBase(env.VITE_KW_NPL_TARGET, 'https://nplserver.kuwo.cn'),
 }
 
 const PROXY: Record<Channel, string> = {
@@ -33,6 +35,8 @@ const PROXY: Record<Channel, string> = {
   nmobi: `${API_PREFIX}/kw-nmobi`,
   img: `${API_PREFIX}/kw-img`,
   comment: `${API_PREFIX}/kw-comment`,
+  wapi: `${API_PREFIX}/kw-wapi`,
+  npl: `${API_PREFIX}/kw-npl`,
 }
 
 /** 直连歌词。openapi 不回跨域头，这个地址会。 */

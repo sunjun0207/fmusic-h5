@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { coverUrl, getComments, getLyric, getMvUrl, getPlayMeta, postDownload, posterList, smallerImageUrl, toProxyAudioUrl } from '../lib/api'
+import { useApp } from '../lib/appContext'
+import { friendlyError, TEXT } from '../lib/brand'
 import { audioQualityTag, formatBytes, requestDownload, trackExt, trackFilename } from '../lib/download'
 import { PLAY_MODE_LABEL } from '../lib/playback'
 import { getSettings, getShowLyric, isFavorite, saveShowLyric, toggleFavorite, upsertDownload } from '../lib/storage'
@@ -9,6 +11,16 @@ import { PlaybackLevels, usePlaybackLevels } from '../components/LevelSlider'
 import { DanmakuLayer } from '../components/DanmakuLayer'
 import { DanmakuSwitch, useDanmakuSetting } from '../components/DanmakuSwitch'
 import { DownloadSheet } from '../components/DownloadSheet'
+import {
+  AddListIcon,
+  CommentIcon,
+  DownloadIcon,
+  HeartIcon,
+  LyricIcon,
+  MvIcon,
+  QueueIcon,
+  ShareIcon,
+} from '../components/Icons'
 import { PosterPreview, type PosterSlide } from '../components/PosterPreview'
 import { LyricView } from '../components/LyricView'
 
@@ -18,6 +30,14 @@ function BackButton({ onBack, light = false }: { onBack: () => void; light?: boo
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
         <path d="M15 5 8 12l7 7" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
+    </button>
+  )
+}
+
+function ShareButton({ onShare, light = false }: { onShare: () => void; light?: boolean }) {
+  return (
+    <button type="button" className={`detail-back${light ? ' is-light' : ''}`} onClick={onShare} aria-label={TEXT.share}>
+      <ShareIcon size={16} />
     </button>
   )
 }
@@ -88,6 +108,8 @@ type Props = {
   onOpenQueue: () => void
   onPlayMv: (music: MusicItem) => void
   onEnsurePlay: (music: MusicItem, br?: string) => Promise<void>
+  /** 变化时直接展开评论区（从社区、歌曲菜单进来）。 */
+  commentsToken?: number
 }
 
 export function MusicDetailPage({
@@ -97,6 +119,7 @@ export function MusicDetailPage({
   duration,
   canPrev,
   canNext,
+  commentsToken = 0,
   onBack,
   onTogglePlay,
   onSeek,
@@ -114,7 +137,7 @@ export function MusicDetailPage({
   const [sheetOpen, setSheetOpen] = useState(false)
   const [previewIndex, setPreviewIndex] = useState<number | null>(null)
   const [dlLoading, setDlLoading] = useState(false)
-  const [msg, setMsg] = useState('')
+  const app = useApp()
   const [fav, setFav] = useState(() => isFavorite(music.id))
   const [posterIndex, setPosterIndex] = useState(0)
   const [posterClock, setPosterClock] = useState(0)
@@ -163,6 +186,12 @@ export function MusicDetailPage({
   useEffect(() => {
     setCommentsOpen(false)
   }, [music.id])
+
+  useEffect(() => {
+    if (!commentsToken) return
+    setLyricOpen(false)
+    setCommentsOpen(true)
+  }, [commentsToken])
 
   useEffect(() => {
     if (!commentsOpen) return
@@ -324,7 +353,6 @@ export function MusicDetailPage({
 
   const onPickQuality = async (option: QualityOption) => {
     setDlLoading(true)
-    setMsg('')
     try {
       const meta = await getPlayMeta(music.id, option.br)
       const fileUrl = toProxyAudioUrl(meta.url)
@@ -348,17 +376,15 @@ export function MusicDetailPage({
         audioQualityTag(option.id),
       )
       setSheetOpen(false)
-      setMsg('正在准备下载…')
+      app.notify('正在准备下载…')
       const mode = await requestDownload(fileUrl, filename)
-      setMsg(
-        mode.mode === 'started'
-          ? mode.bytes > 0
-            ? `已开始下载 ${filename}（${formatBytes(mode.bytes)}）`
-            : `已开始下载 ${filename}`
-          : '',
-      )
+      if (mode.mode === 'started') {
+        app.notify(
+          mode.bytes > 0 ? `已开始下载 ${filename}（${formatBytes(mode.bytes)}）` : `已开始下载 ${filename}`,
+        )
+      }
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : '获取下载地址失败')
+      app.notify(friendlyError(e, e instanceof Error ? e.message : '获取下载地址失败'))
     } finally {
       setDlLoading(false)
     }
@@ -400,7 +426,14 @@ export function MusicDetailPage({
         </section>
       ) : (
         <>
-          <BackButton onBack={onBack} />
+          <header className="player-head">
+            <BackButton onBack={onBack} />
+            <div className="player-head-title">
+              <strong>正在播放</strong>
+              <em>NOW PLAYING</em>
+            </div>
+            <ShareButton onShare={() => app.share({ kind: 'song', music })} />
+          </header>
           <div
             className="detail-cover-wrap"
             role="button"
@@ -469,16 +502,17 @@ export function MusicDetailPage({
       <div className="detail-actions">
         <button
           type="button"
-          className={`action-chip${fav ? ' on' : ''}`}
-          onClick={() => setFav(toggleFavorite(music))}
-          aria-label={fav ? '取消收藏' : '收藏'}
+          className={`action-chip fav${fav ? ' on' : ''}`}
+          onClick={() => {
+            const next = toggleFavorite(music)
+            setFav(next)
+            app.notify(next ? TEXT.favorited : TEXT.unfavorited)
+            app.bumpLibrary()
+          }}
+          aria-pressed={fav}
+          aria-label={fav ? '从我的音乐宇宙移出' : TEXT.favorite}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill={fav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8">
-            <path
-              d="M12 20.2s-6.6-4.2-6.6-9C5.4 8.4 7.3 6.6 9.7 6.6c1.3 0 2.5.6 3.3 1.7.8-1.1 2-1.7 3.3-1.7 2.4 0 4.3 1.8 4.3 4.6 0 4.8-6.6 9-6.6 9z"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <HeartIcon filled={fav} />
           <span>{fav ? '已收藏' : '收藏'}</span>
         </button>
         <button
@@ -487,9 +521,7 @@ export function MusicDetailPage({
           aria-pressed={lyricOpen}
           onClick={toggleLyric}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M5 6h14M5 12h10M5 18h14" strokeLinecap="round" />
-          </svg>
+          <LyricIcon />
           <span>{lyricOpen ? '收起' : '歌词'}</span>
         </button>
         {music.hasMv ? (
@@ -501,14 +533,14 @@ export function MusicDetailPage({
             }}
             onClick={() => onPlayMv(music)}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <rect x="3" y="6" width="13" height="12" rx="2" />
-              <path d="m16 10 5-2v8l-5-2v-4Z" strokeLinejoin="round" />
-            </svg>
+            <MvIcon />
             <span>播放MV</span>
           </button>
         ) : music.hasMv === false ? (
-          <span className="action-chip is-static">暂无MV</span>
+          <span className="action-chip is-static">
+            <MvIcon />
+            <span>暂无MV</span>
+          </span>
         ) : null}
         <button
           type="button"
@@ -521,21 +553,19 @@ export function MusicDetailPage({
           }
           onClick={toggleComments}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M7.2 17.2 4.6 20v-3.2A7.6 7.6 0 1 1 12 19.2a7.5 7.5 0 0 1-4.8-2Z" strokeLinejoin="round" />
-          </svg>
-          <span className="chip-copy">
-            <span>{commentsOpen ? '收起' : '评论'}</span>
+          <span className="chip-icon">
+            <CommentIcon />
             {commentStatus !== 'loading' ? <i className="chip-count">{formatCount(commentTotal)}</i> : null}
           </span>
+          <span>{commentsOpen ? '收起' : '评论'}</span>
         </button>
         <button type="button" className="action-chip download" onClick={() => setSheetOpen(true)}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-            <path d="M12 4v11" strokeLinecap="round" />
-            <path d="m7.5 11.5 4.5 4.5 4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M5 19h14" strokeLinecap="round" />
-          </svg>
+          <DownloadIcon />
           <span>下载</span>
+        </button>
+        <button type="button" className="action-chip add" onClick={() => app.addToPlaylist(music)} aria-label="收藏到歌单">
+          <AddListIcon />
+          <span>歌单</span>
         </button>
       </div>
 
@@ -547,6 +577,11 @@ export function MusicDetailPage({
           max={duration || music.duration || 0}
           step={0.1}
           value={Math.min(currentTime, duration || music.duration || 0)}
+          style={
+            {
+              '--p': `${(Math.min(currentTime, duration || music.duration || 0) / Math.max(duration || music.duration || 1, 1)) * 100}%`,
+            } as CSSProperties
+          }
           onChange={(e) => onSeek(Number(e.target.value))}
         />
         <div className="time-row">
@@ -569,10 +604,7 @@ export function MusicDetailPage({
             <span>{PLAY_MODE_LABEL[playMode]}</span>
           </button>
           <button type="button" className="util-btn" onClick={onOpenQueue}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M9 7h11M9 12h11M9 17h11" strokeLinecap="round" />
-              <path d="M4 7h.01M4 12h.01M4 17h.01" strokeLinecap="round" />
-            </svg>
+            <QueueIcon />
             <span>播放列表</span>
           </button>
         </div>
@@ -610,8 +642,6 @@ export function MusicDetailPage({
           </button>
         </div>
       </div>
-
-      {msg ? <div className="empty" style={{ padding: 8 }}>{msg}</div> : null}
 
       {commentsOpen && !lyricOpen ? (
         <div ref={commentPanelRef}>

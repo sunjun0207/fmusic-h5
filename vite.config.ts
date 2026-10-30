@@ -101,6 +101,14 @@ export default defineConfig(({ mode }) => {
             'User-Agent': 'Mozilla/5.0',
           },
         ),
+        '/api-fmusic-pomelo7-server/kw-wapi': proxyRule(
+          '/api-fmusic-pomelo7-server/kw-wapi',
+          env.VITE_KW_WAPI_TARGET || 'https://wapi.kuwo.cn',
+        ),
+        '/api-fmusic-pomelo7-server/kw-npl': proxyRule(
+          '/api-fmusic-pomelo7-server/kw-npl',
+          env.VITE_KW_NPL_TARGET || 'https://nplserver.kuwo.cn',
+        ),
       },
     },
     build: {

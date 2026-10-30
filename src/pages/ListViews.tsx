@@ -298,7 +298,7 @@ export function PrivateView() {
         eyebrow={SECTION.private.en}
         meta={`此刻 · ${momentLabel()} · ${station.title}`}
         desc={`${SECTION.private.desc} ${station.desc}`}
-        tone="violet"
+        tone="teal"
       >
         <PlayAllButton list={list} label={SECTION.private.title} />
       </ListHero>

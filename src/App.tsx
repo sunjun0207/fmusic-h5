@@ -116,7 +116,7 @@ function viewTitle(view: View): string {
   }
 }
 
-type HistoryMark = { soundwave?: number }
+type HistoryMark = { depth?: number }
 
 export default function App() {
   const [tab, setTab] = useState<TabId>('home')
@@ -802,7 +802,7 @@ export default function App() {
   useEffect(() => {
     if (depth > pushedRef.current) {
       for (let level = pushedRef.current + 1; level <= depth; level += 1) {
-        history.pushState({ soundwave: level } satisfies HistoryMark, '')
+        history.pushState({ depth: level } satisfies HistoryMark, '')
       }
       pushedRef.current = depth
     } else if (depth < pushedRef.current) {
@@ -820,7 +820,7 @@ export default function App() {
         skipPops.current -= 1
         return
       }
-      const target = Number((event.state as HistoryMark | null)?.soundwave ?? 0)
+      const target = Number((event.state as HistoryMark | null)?.depth ?? 0)
       if (target >= pushedRef.current) return
       let steps = pushedRef.current - target
       pushedRef.current = target
@@ -833,7 +833,7 @@ export default function App() {
         steps -= 1
         if (steps <= 0) {
           pushedRef.current += 1
-          history.pushState({ soundwave: pushedRef.current } satisfies HistoryMark, '')
+          history.pushState({ depth: pushedRef.current } satisfies HistoryMark, '')
           return
         }
       }

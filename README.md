@@ -1,4 +1,4 @@
-# 音浪 SOUNDWAVE（fmusic-h5）
+# 聆听jun.sun（fmusic-h5）
 
 听见热爱 · 遇见共鸣。Vite + React + TypeScript 移动端潮流音乐社区：每日推荐 / 私人专属 / 排行榜 / 歌单广场 / 音乐电台 / 热评社区 / 自建歌单，以及搜歌、播放、歌词、MV、下载，数据来自酷我曲库 + 自有 API。
 
@@ -208,7 +208,7 @@ docker compose -f docker-compose.pro.yml build \
 | `src/lib/kuwoDes.ts` | 浏览器版 KuwoDES（密钥 `ylzsxkwm`），生成 nmobi `q=` |
 | `src/lib/api.ts` | 搜索 / 联想 / 歌词 / 播放元数据 / 版本公告 / 行为上报 |
 | `src/lib/discover.ts` | 榜单、歌单、歌手、热评、每日推荐 / 私人专属 / 电台混排 |
-| `src/lib/brand.ts` | 音浪 SOUNDWAVE 品牌文案、精选推荐与电台配置 |
+| `src/lib/brand.ts` | 品牌文案、精选推荐与电台配置 |
 | `src/lib/storage.ts` | localStorage：uid、搜索历史、下载、设置、最近播放、自建歌单、收藏歌单 |
 | `src/pages/*` | 首页、发现、排行榜、社区、我的、电台、搜索、下载、设置、播放页及各类歌单详情 |
 | `vite.config.ts` | 按 mode 读取 `.env.*`，配置开发代理（绕过浏览器跨域）、`base`、sourcemap |

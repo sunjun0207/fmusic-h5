@@ -1,6 +1,5 @@
 export const BRAND = {
-  name: '音浪',
-  en: 'SOUNDWAVE',
+  name: '聆听jun.sun',
   motto: '听见热爱 · 遇见共鸣',
   tagline: '让每一种情绪，都有专属 BGM。',
   intro: '一个发现好音乐、分享好心情、遇见同频灵魂的音乐世界。',
@@ -96,9 +95,9 @@ export type PickSource = { kind: 'chart'; id: string } | { kind: 'keyword'; keyw
 export type Pick = Copy & { id: string; source: PickSource; tone: string }
 
 export const PICKS: Pick[] = [
-  { id: 'today', title: '今日必听', en: 'TODAY', desc: '精选好歌，为今天加一点旋律。', source: { kind: 'chart', id: '93' }, tone: 'violet' },
+  { id: 'today', title: '今日必听', en: 'TODAY', desc: '精选好歌，为今天加一点旋律。', source: { kind: 'chart', id: '93' }, tone: 'teal' },
   { id: 'heal', title: '治愈时光', en: 'HEALING', desc: '累了就听听歌，让心情慢慢放晴。', source: { kind: 'keyword', keyword: '治愈歌单' }, tone: 'mint' },
-  { id: 'live', title: '潮流现场', en: 'LIVE', desc: '热门节奏持续加载，释放你的音乐能量。', source: { kind: 'chart', id: '158' }, tone: 'pink' },
+  { id: 'live', title: '潮流现场', en: 'LIVE', desc: '热门节奏持续加载，释放你的音乐能量。', source: { kind: 'chart', id: '158' }, tone: 'coral' },
   { id: 'night', title: '深夜情绪', en: 'MIDNIGHT', desc: '当世界安静下来，让音乐替你表达。', source: { kind: 'keyword', keyword: '深夜' }, tone: 'blue' },
   { id: 'indie', title: '独立音乐', en: 'INDIE', desc: '发现不一样的声音，收藏属于你的宝藏。', source: { kind: 'keyword', keyword: '独立音乐' }, tone: 'amber' },
 ]
@@ -110,8 +109,8 @@ export const STATIONS: Station[] = [
   { id: 'morning', title: '清晨唤醒', en: 'MORNING', desc: '被旋律轻轻叫醒，元气满格。', keyword: '早晨', tone: 'amber' },
   { id: 'commute', title: '通勤路上', en: 'COMMUTE', desc: '戴上耳机，世界都是你的。', keyword: '通勤', tone: 'blue' },
   { id: 'focus', title: '专注时刻', en: 'FOCUS', desc: '关掉杂音，只留下专注。', keyword: '学习歌单', tone: 'mint' },
-  { id: 'workout', title: '燃脂运动', en: 'WORKOUT', desc: '跟着节拍，再多坚持一分钟。', keyword: '运动', tone: 'pink' },
-  { id: 'citywalk', title: '城市漫步', en: 'CITYWALK', desc: '慢一点走，听城市的呼吸。', keyword: '散步', tone: 'violet' },
+  { id: 'workout', title: '燃脂运动', en: 'WORKOUT', desc: '跟着节拍，再多坚持一分钟。', keyword: '运动', tone: 'coral' },
+  { id: 'citywalk', title: '城市漫步', en: 'CITYWALK', desc: '慢一点走，听城市的呼吸。', keyword: '散步', tone: 'teal' },
   { id: 'night', title: '晚安电台', en: 'GOOD NIGHT', desc: '把今天的疲惫，交给温柔的旋律。', keyword: '助眠', tone: 'indigo' },
 ]
 
@@ -171,9 +170,9 @@ export const STORY = {
   title: '音乐，是生活的另一种表达。',
   lines: [
     '有人用音乐记录青春，有人用旋律治愈孤独，也有人在节奏中寻找自由。',
-    '音浪希望成为你的音乐灵感空间，让每一份热爱都有回响，让每一次相遇都有声音。',
+    '聆听jun.sun 希望成为你的音乐灵感空间，让每一份热爱都有回响，让每一次相遇都有声音。',
   ],
-  sign: 'SOUNDWAVE · 让热爱持续发声。',
+  sign: '聆听jun.sun · 让热爱持续发声。',
 }
 
 export const TEXT = {

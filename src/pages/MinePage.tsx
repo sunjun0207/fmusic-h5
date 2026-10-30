@@ -70,7 +70,7 @@ export function MinePage() {
           <WaveMark playing={app.playing} />
         </span>
         <div className="profile-copy">
-          <strong>音浪听众</strong>
+          <strong>聆听者</strong>
           <em>ID {uid}</em>
           <p>{PAGE.mine.headline}</p>
         </div>

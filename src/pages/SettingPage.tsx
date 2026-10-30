@@ -87,9 +87,7 @@ export function SettingPage() {
       <div className="setting-group">
         <div className="setting-row">
           <div>名称</div>
-          <div className="song-sub">
-            {BRAND.name} {BRAND.en}
-          </div>
+          <div className="song-sub">{BRAND.name}</div>
         </div>
         <div className="setting-row">
           <div>版本</div>

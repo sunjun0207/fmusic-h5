@@ -100,7 +100,7 @@ export async function shareTarget(target: ShareTarget): Promise<string> {
     target.kind === 'song'
       ? `${target.music.title} - ${target.music.artist}`
       : `歌单「${target.name}」`
-  const text = `我在${BRAND.name} ${BRAND.en} 听到了${title}，${BRAND.motto}`
+  const text = `我在${BRAND.name}听到了${title}，${BRAND.motto}`
   if (typeof navigator.share === 'function') {
     try {
       await navigator.share({ title: `${title} | ${BRAND.name}`, text, url })

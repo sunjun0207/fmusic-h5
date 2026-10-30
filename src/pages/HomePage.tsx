@@ -125,9 +125,7 @@ function Banner({ active, slides, onPlay, onExplore }: { active: boolean; slides
                 <i key={bar} style={{ animationDelay: `${(bar % 7) * -0.18}s` }} />
               ))}
             </div>
-            <p className="banner-tag">
-              {BRAND.name} {BRAND.en}
-            </p>
+            <p className="banner-tag">{BRAND.name}</p>
             <h1>{HERO.title}</h1>
             <p className="banner-text">{HERO.text}</p>
             <div className="banner-actions">
@@ -465,8 +463,7 @@ function StoryFooter() {
         </div>
       </div>
       <div className="lockup">
-        <p className="lockup-en">{BRAND.en}</p>
-        <p className="lockup-cn">音 浪</p>
+        <p className="lockup-name">{BRAND.name}</p>
         <p className="lockup-title">{HERO.title}</p>
         <p className="lockup-pillars">{BRAND.pillars}</p>
         <p className="lockup-promise">{BRAND.promise}</p>

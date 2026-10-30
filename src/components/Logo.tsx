@@ -16,14 +16,13 @@ export function WaveMark({ playing = false, className = '' }: { playing?: boolea
 
 export function Logo({ playing = false, size = 'md' }: Props) {
   return (
-    <div className={`logo logo--${size}`} role="img" aria-label={`${BRAND.name} ${BRAND.en}`}>
+    <div className={`logo logo--${size}`} role="img" aria-label={BRAND.name}>
       <span className="logo-badge">
         <WaveMark playing={playing} />
       </span>
-      <span className="logo-word" aria-hidden="true">
-        <strong>{BRAND.name}</strong>
-        <em>{BRAND.en}</em>
-      </span>
+      <strong className="logo-word" aria-hidden="true">
+        {BRAND.name}
+      </strong>
     </div>
   )
 }

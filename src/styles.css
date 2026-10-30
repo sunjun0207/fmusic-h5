@@ -5194,6 +5194,15 @@ img {
   font-size: 0.78rem;
 }
 
+.comment-expand {
+  margin-top: 6px;
+  padding: 0;
+  color: var(--teal-deep);
+  font-size: 0.8rem;
+  font-weight: 700;
+  background: none;
+}
+
 .comment-more {
   align-self: center;
   display: inline-flex;

@@ -490,6 +490,34 @@ function commentNodes(raw: unknown): Record<string, unknown>[] {
   return []
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+}
+
+/** 没评论时曲库不给 rows，而是 { data: { info: [], total: "0" } }。 */
+function readCommentPage(data: unknown): { rows: Record<string, unknown>[]; total: number } {
+  const root = asRecord(data)
+  if (!root) return { rows: [], total: 0 }
+  if (Array.isArray(root.rows)) return { rows: commentNodes(root.rows), total: Number(root.total) || 0 }
+  const nested = asRecord(root.data)
+  if (nested && (Array.isArray(nested.info) || nested.total !== undefined)) {
+    return { rows: commentNodes(nested.info), total: Number(nested.total) || 0 }
+  }
+  const hot = commentNodes(root.hot_comments)
+  const comments = commentNodes(root.comments)
+  if (hot.length || comments.length || root.comments_counts !== undefined) {
+    const seen = new Set<string>()
+    const rows = [...hot, ...comments].filter((row) => {
+      const id = String(row.id ?? '')
+      if (!id || seen.has(id)) return false
+      seen.add(id)
+      return true
+    })
+    return { rows, total: Number(root.comments_counts) || rows.length }
+  }
+  return { rows: [], total: Number(root.total) || 0 }
+}
+
 function mapComment(raw: Record<string, unknown>, index: number, seen = new Set<string>()): SongComment | null {
   const text = cleanText(String(raw.msg ?? '')).replace(/\s+/g, ' ').trim()
   if (!text) return null
@@ -501,13 +529,18 @@ function mapComment(raw: Record<string, unknown>, index: number, seen = new Set<
     text,
     time: String(raw.time ?? ''),
     likes: Number(raw.like_num) || 0,
+    replyCount: 0,
     replies: [],
   }
   if (seen.has(id)) return comment
   seen.add(id)
-  comment.replies = commentNodes(raw.reply)
+  const childRows = commentNodes(raw.child_comments)
+  const replyRows = commentNodes(raw.reply)
+  comment.replies = (childRows.length ? childRows : replyRows)
     .map((item, replyIndex) => mapComment(item, replyIndex, seen))
     .filter((item): item is SongComment => !!item)
+  const declared = Number(raw.child_comment_count)
+  comment.replyCount = Math.max(declared > 0 ? declared : 0, comment.replies.length)
   return comment
 }
 
@@ -529,13 +562,13 @@ export async function getComments(
     prod: 'newWeb',
     httpsStatus: '1',
   })
-  const res = await apiFetch(endpoint('comment', `/com.s?${qs}`))
+  const res = await apiFetch(endpoint('comment', `/com.s?${qs}`), {
+    signal: AbortSignal.timeout(25000),
+  })
   if (!res.ok) throw new Error('评论加载失败')
-  const data = (await res.json()) as { rows?: Array<Record<string, unknown>>; total?: string | number }
-  const list = (data.rows ?? [])
-    .map((item, index) => mapComment(item, index))
-    .filter((item): item is SongComment => !!item)
-  return { list, total: Number(data.total) || list.length }
+  const pageData = readCommentPage(await res.json())
+  const list = pageData.rows.map((item, index) => mapComment(item, index)).filter((item): item is SongComment => !!item)
+  return { list, total: list.length ? pageData.total || list.length : 0 }
 }
 
 /** 精选热评，和评论区同一个接口，按点赞排好序。 */

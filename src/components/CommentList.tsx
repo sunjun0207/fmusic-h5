@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Pending } from './Pending'
 import type { SongComment } from '../lib/types'
 
@@ -25,7 +26,11 @@ function ReplyIcon() {
   )
 }
 
-function CommentThread({ comment }: { comment: SongComment }) {
+function CommentThread({ comment, depth = 0 }: { comment: SongComment; depth?: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const replies = comment.replies
+  // 一级下面的二级评论直接展示。再往下的回复收起，点「展开xxx条评论」才打开。
+  const showReplies = depth === 0 || expanded
   return (
     <div className="comment-thread">
       <div className="comment-meta">
@@ -40,15 +45,20 @@ function CommentThread({ comment }: { comment: SongComment }) {
         </span>
         <span className="comment-stat">
           <ReplyIcon />
-          {comment.replies.length}
+          {comment.replyCount}
         </span>
       </div>
-      {comment.replies.length ? (
+      {replies.length && showReplies ? (
         <div className="comment-replies">
-          {comment.replies.map((reply) => (
-            <CommentThread key={reply.id} comment={reply} />
+          {replies.map((reply) => (
+            <CommentThread key={reply.id} comment={reply} depth={depth + 1} />
           ))}
         </div>
+      ) : null}
+      {replies.length && !showReplies ? (
+        <button type="button" className="comment-expand" onClick={() => setExpanded(true)}>
+          展开{comment.replyCount}条评论
+        </button>
       ) : null}
     </div>
   )
@@ -65,7 +75,7 @@ export function CommentList({ comments, total, status, loadingMore, onMore }: Pr
       </div>
       {status === 'loading' ? <Pending text="评论加载中…" layout="inline" /> : null}
       {status === 'error' ? <p className="comment-note">评论暂时没有加载出来</p> : null}
-      {status === 'empty' ? <p className="comment-note">还没有评论</p> : null}
+      {status === 'empty' ? <p className="comment-note">暂无评论</p> : null}
       <ul className="comment-list">
         {comments.map((comment) => (
           <li key={comment.id}>

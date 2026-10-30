@@ -81,6 +81,8 @@ export type SongComment = {
   text: string
   time: string
   likes: number
+  /** 直接回复条数。已加载的在 replies 里，可能少于这个数。 */
+  replyCount: number
   replies: SongComment[]
 }
 

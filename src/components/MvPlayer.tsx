@@ -33,6 +33,24 @@ type IOSVideo = HTMLVideoElement & {
   webkitDisplayingFullscreen?: boolean
 }
 
+type ScreenBridge = {
+  landscape: () => void
+  portrait: () => void
+}
+
+function nativeScreen(): ScreenBridge | null {
+  const bridge = (window as Window & { FMusicScreen?: ScreenBridge }).FMusicScreen
+  if (typeof bridge?.landscape !== 'function' || typeof bridge?.portrait !== 'function') return null
+  return bridge
+}
+
+function setNativeLandscape(on: boolean) {
+  const bridge = nativeScreen()
+  if (!bridge) return
+  if (on) bridge.landscape()
+  else bridge.portrait()
+}
+
 export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQuality }: Props) {
   const layerRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -84,7 +102,10 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       if (event.key !== 'Escape' || document.fullscreenElement) return
       onClose()
     }
-    const sync = () => setFullscreen(Boolean(document.fullscreenElement))
+    const sync = () => {
+      if (nativeScreen()) return
+      setFullscreen(Boolean(document.fullscreenElement))
+    }
     window.addEventListener('keydown', onKey)
     document.addEventListener('fullscreenchange', sync)
     return () => {
@@ -92,6 +113,10 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       document.removeEventListener('fullscreenchange', sync)
     }
   }, [onClose])
+
+  useEffect(() => {
+    return () => setNativeLandscape(false)
+  }, [])
 
   useEffect(() => {
     const video = videoRef.current
@@ -199,6 +224,12 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   const toggleFullscreen = async () => {
     const layer = layerRef.current
     const video = videoRef.current as IOSVideo | null
+    if (nativeScreen()) {
+      const next = !fullscreen
+      setFullscreen(next)
+      setNativeLandscape(next)
+      return
+    }
     if (document.fullscreenElement) {
       await document.exitFullscreen().catch(() => undefined)
       return

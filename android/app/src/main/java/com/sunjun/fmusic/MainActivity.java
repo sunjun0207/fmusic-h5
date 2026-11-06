@@ -27,6 +27,7 @@ public class MainActivity extends BridgeActivity {
         if (hooksInstalled) return;
         webView.addJavascriptInterface(new FMusicNet(webView), "FMusicNet");
         webView.addJavascriptInterface(new DownloadBridge(this), "FMusicDownload");
+        webView.addJavascriptInterface(new ScreenBridge(this), "FMusicScreen");
         hooksInstalled = true;
     }
 }

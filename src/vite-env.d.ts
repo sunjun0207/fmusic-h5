@@ -14,6 +14,8 @@ interface ImportMetaEnv {
   readonly VITE_DEV_PORT: string
   /** true 走本站代理，false 浏览器直连曲库 */
   readonly VITE_USE_PROXY: string
+  /** 安装包里接口要打到的站点。留空时，仅原生 WebView 使用 VITE_API_TARGET */
+  readonly VITE_API_ORIGIN?: string
   readonly VITE_API_TARGET: string
   readonly VITE_KW_SEARCH_TARGET: string
   readonly VITE_KW_OPENAPI_TARGET: string

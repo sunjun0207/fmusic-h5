@@ -16,3 +16,11 @@ docker/*/ssl/*.key
 docker/*/ssl/*.crt
 # certbot webroot
 docker/*/certbot-www
+
+# Capacitor / Android 本地构建产物（android 工程本身需要保留）
+android/.gradle
+android/build
+android/app/build
+android/local.properties
+android/captures
+android/.idea

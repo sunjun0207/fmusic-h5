@@ -1,5 +1,5 @@
 export const BRAND = {
-  name: '聆听jun.sun',
+  name: '碎冰音乐',
   motto: '听见热爱 · 遇见共鸣',
   tagline: '让每一种情绪，都有专属 BGM。',
   intro: '一个发现好音乐、分享好心情、遇见同频灵魂的音乐世界。',
@@ -170,9 +170,9 @@ export const STORY = {
   title: '音乐，是生活的另一种表达。',
   lines: [
     '有人用音乐记录青春，有人用旋律治愈孤独，也有人在节奏中寻找自由。',
-    '聆听jun.sun 希望成为你的音乐灵感空间，让每一份热爱都有回响，让每一次相遇都有声音。',
+    '碎冰音乐 希望成为你的音乐灵感空间，让每一份热爱都有回响，让每一次相遇都有声音。',
   ],
-  sign: '聆听jun.sun · 让热爱持续发声。',
+  sign: '碎冰音乐 · 让热爱持续发声。',
 }
 
 export const TEXT = {
@@ -195,6 +195,8 @@ export const TEXT = {
 /** 把网络层的报错换成品牌口吻。断网、超时、JSONP 失败都算网络问题。 */
 export function friendlyError(error: unknown, fallback: string = TEXT.network): string {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return TEXT.network
+  const nativeNet = typeof window !== 'undefined' && (window as Window & { FMusicNet?: unknown }).FMusicNet
+  if (nativeNet && error instanceof Error && error.message) return error.message
   if (error instanceof TypeError) return TEXT.network
   if (error instanceof Error && /请求失败|请求超时|Failed to fetch|NetworkError|Load failed/i.test(error.message)) {
     return TEXT.network

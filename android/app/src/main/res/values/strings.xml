@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">碎冰音乐</string>
+    <string name="title_activity_main">碎冰音乐</string>
+    <string name="package_name">com.sunjun.fmusic</string>
+    <string name="custom_url_scheme">com.sunjun.fmusic</string>
+</resources>

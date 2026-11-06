@@ -1,4 +1,4 @@
-# 聆听jun.sun（fmusic-h5）
+# 碎冰音乐（fmusic-h5）
 
 听见热爱 · 遇见共鸣。Vite + React + TypeScript 移动端潮流音乐社区：每日推荐 / 私人专属 / 排行榜 / 歌单广场 / 音乐电台 / 热评社区 / 自建歌单，以及搜歌、播放、歌词、MV、下载，数据来自酷我曲库 + 自有 API。
 
@@ -242,7 +242,7 @@ user=0&corp=kuwo&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk&p2p=1&type=convert_
 ### H5 与 App 差异
 
 - 下载无法直接写系统文件，下载页记录 URL，可「打开」或标记已下载。
-- 版本号展示为 `1.0.10 H5`，联系邮箱 `sunjun0207@163.com`。
+- 版本号展示为 `1.0.10 H5`，联系邮箱 `suibing@gmail.com`。
 
 ## 技术栈
 

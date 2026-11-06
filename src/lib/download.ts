@@ -1,9 +1,20 @@
-import { API_PREFIX, isKuwoMediaUrl, proxyDownloadUrl } from './source'
+import { apiPrefix, hasNativeNet, isKuwoMediaUrl, isNativeApp, playbackUrl, proxyDownloadUrl, serverOrigin } from './source'
 
 const HASH_PREFIX = '#dl='
 
 function isDownloadUrl(url: string): boolean {
-  return url.startsWith('/api-fmusic-pomelo7-server/') || isKuwoMediaUrl(url)
+  return url.startsWith(`${apiPrefix()}/`) || url.startsWith('/api-fmusic-pomelo7-server/') || isKuwoMediaUrl(url)
+}
+
+type NativeDownloader = { download: (url: string, filename: string) => void }
+
+function nativeDownload(url: string, filename: string): boolean {
+  if (!isNativeApp()) return false
+  const bridge = (window as Window & { FMusicDownload?: NativeDownloader }).FMusicDownload
+  const absolute = /^https:\/\//i.test(url) ? url : url.startsWith('/') ? `${serverOrigin()}${url}` : ''
+  if (!bridge || !absolute) return false
+  bridge.download(absolute, filename)
+  return true
 }
 
 export type PendingDownload = {
@@ -145,8 +156,9 @@ function openDirectFile(url: string, filename: string) {
 
 export async function saveTrackFile(url: string, filename: string): Promise<number> {
   if (!isDownloadUrl(url)) throw new Error('下载地址无效')
-  const target = proxyDownloadUrl(url)
-  if (!target.startsWith(`${API_PREFIX}/`)) {
+  const target = hasNativeNet() ? playbackUrl(url) : proxyDownloadUrl(url)
+  if (nativeDownload(target, filename)) return 0
+  if (!target.startsWith(`${apiPrefix()}/`) && !target.startsWith('/api-fmusic-pomelo7-server/')) {
     openDirectFile(url, filename)
     return 0
   }

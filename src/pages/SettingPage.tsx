@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Logo } from '../components/Logo'
 import { APP_VERSION } from '../lib/api'
+import { hasNativeNet, isNativeApp } from '../lib/source'
 import { BRAND, KEYWORDS, STORY } from '../lib/brand'
 import { getSettings, saveSettings } from '../lib/storage'
 import type { AppSettings } from '../lib/types'
@@ -91,12 +92,12 @@ export function SettingPage() {
         </div>
         <div className="setting-row">
           <div>版本</div>
-          <div className="song-sub">{APP_VERSION} H5</div>
+          <div className="song-sub">{APP_VERSION} {hasNativeNet() || isNativeApp() ? 'Android · 5' : 'H5'}</div>
         </div>
         <div className="setting-row">
           <div>联系邮箱</div>
-          <a href="mailto:sunjun0207@163.com" className="song-sub">
-            sunjun0207@163.com
+          <a href="mailto:suibing@gmail.com" className="song-sub">
+            suibing@gmail.com
           </a>
         </div>
         <div className="setting-row about-note-row">

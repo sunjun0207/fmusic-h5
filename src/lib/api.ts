@@ -11,7 +11,7 @@ import type {
   UpdateInfo,
 } from './types'
 import { getSettings, getUid } from './storage'
-import { apiFetch, DIRECT_LYRIC, downloadUrl, endpoint, jsonp, playbackUrl, useProxy } from './source'
+import { apiFetch, DIRECT_LYRIC, downloadUrl, endpoint, hasNativeNet, isNativeApp, jsonp, playbackUrl, useProxy } from './source'
 
 const APP_VERSION = '1.0.10'
 
@@ -81,6 +81,11 @@ function resizeKuwoImage(url: string, size?: number): string {
 /** 本站 /kw-img 指向 img1，img1-4 内容相同。榜单图在 zimg、横幅在 kwimg，只能直接用 https。 */
 const SHARED_IMAGE_HOST = /^img\d\.(?:kwcdn\.)?kuwo\.cn$/i
 
+function directImage(path: string): string {
+  const base = String(import.meta.env.VITE_KW_IMG_TARGET || 'https://img1.kuwo.cn').replace(/\/$/, '')
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`
+}
+
 export function coverUrl(path?: string, size?: number): string {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) {
@@ -91,8 +96,13 @@ export function coverUrl(path?: string, size?: number): string {
           u.protocol = 'https:'
           return u.toString()
         }
-        if (!useProxy) {
+        if (!useProxy || hasNativeNet()) {
           u.protocol = 'https:'
+          if (hasNativeNet()) {
+            const direct = new URL(directImage(u.pathname))
+            u.protocol = direct.protocol
+            u.host = direct.host
+          }
           return resizeKuwoImage(u.toString(), size)
         }
         return resizeKuwoImage(endpoint('img', `${u.pathname}${u.search}`), size)
@@ -103,10 +113,9 @@ export function coverUrl(path?: string, size?: number): string {
     return path
   }
   const cleaned = path.replace(/^\/+/, '')
-  if (cleaned.startsWith('star/albumcover/')) {
-    return resizeKuwoImage(endpoint('img', `/${cleaned}`), size)
-  }
-  return resizeKuwoImage(endpoint('img', `/star/albumcover/${cleaned}`), size)
+  const suffix = cleaned.startsWith('star/albumcover/') ? `/${cleaned}` : `/star/albumcover/${cleaned}`
+  if (hasNativeNet()) return resizeKuwoImage(directImage(suffix), size)
+  return resizeKuwoImage(endpoint('img', suffix), size)
 }
 
 /** 歌手图在 starheads，和专辑封面不是同一目录。现图最大约 500。 */
@@ -115,8 +124,9 @@ export function artistUrl(path?: string, size?: number): string {
   if (!path) return ''
   if (path.startsWith('http://') || path.startsWith('https://')) return coverUrl(path, capped)
   const cleaned = path.replace(/^\/+/, '')
-  if (cleaned.startsWith('star/')) return resizeKuwoImage(endpoint('img', `/${cleaned}`), capped)
-  return resizeKuwoImage(endpoint('img', `/star/starheads/${cleaned}`), capped)
+  const suffix = cleaned.startsWith('star/') ? `/${cleaned}` : `/star/starheads/${cleaned}`
+  if (hasNativeNet()) return resizeKuwoImage(directImage(suffix), capped)
+  return resizeKuwoImage(endpoint('img', suffix), capped)
 }
 
 export function posterList(item: { image?: string; artistImage?: string }, size = 1000): string[] {
@@ -448,7 +458,7 @@ export async function postAccess(): Promise<void> {
       body: JSON.stringify({
         uid: getUid(),
         version: APP_VERSION,
-        android: 'H5',
+        android: isNativeApp() ? 'Android' : 'H5',
         brand: navigator.vendor || 'browser',
         model: navigator.userAgent.slice(0, 80),
       }),

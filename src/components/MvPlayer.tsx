@@ -47,6 +47,7 @@ function nativeScreen(): ScreenBridge | null {
 function setNativeLandscape(on: boolean) {
   const bridge = nativeScreen()
   if (!bridge) return
+  document.documentElement.classList.toggle('mv-native-full', on)
   if (on) bridge.landscape()
   else bridge.portrait()
 }
@@ -68,7 +69,11 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   const { volume, brightness } = usePlaybackLevels('mv')
   const [danmakuBox, setDanmakuBox] = useState({ top: 12, left: 8, right: 8 })
   const [qualityOpen, setQualityOpen] = useState(false)
+  const [loop, setLoop] = useState(false)
+  const loopRef = useRef(false)
+  const replayingRef = useRef(false)
   const hideTimer = useRef(0)
+  loopRef.current = loop
 
   const scheduleHide = useCallback(() => {
     window.clearTimeout(hideTimer.current)
@@ -249,6 +254,49 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
     video?.webkitEnterFullscreen?.()
   }
 
+  const replay = useCallback(() => {
+    const video = videoRef.current
+    if (!video || !loopRef.current || replayingRef.current) return
+    replayingRef.current = true
+    let started = false
+    const begin = () => {
+      if (started) return
+      started = true
+      video.removeEventListener('seeked', begin)
+      void video.play().then(() => {
+        replayingRef.current = false
+        setPaused(false)
+        setCurrent(video.currentTime || 0)
+      }).catch(() => {
+        replayingRef.current = false
+        setPaused(true)
+      })
+    }
+    video.addEventListener('seeked', begin)
+    try {
+      video.currentTime = 0
+    } catch {
+      video.removeEventListener('seeked', begin)
+      replayingRef.current = false
+      setPaused(true)
+      return
+    }
+    window.setTimeout(begin, 400)
+  }, [])
+
+  const atEnd = (video: HTMLVideoElement) => {
+    const duration = video.duration
+    return video.ended || (Number.isFinite(duration) && duration > 1 && video.currentTime >= duration - 0.35)
+  }
+
+  const toggleLoop = () => {
+    const next = !loopRef.current
+    loopRef.current = next
+    setLoop(next)
+    const video = videoRef.current
+    if (next && video && atEnd(video)) replay()
+  }
+
   const toggle = () => {
     const video = videoRef.current
     if (!video) return
@@ -333,10 +381,27 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
             playsInline
             preload="auto"
             onPlay={() => setPaused(false)}
-            onPause={() => setPaused(true)}
-            onTimeUpdate={() => setCurrent(videoRef.current?.currentTime || 0)}
+            onPause={() => {
+              const video = videoRef.current
+              if (replayingRef.current) return
+              if (video && loopRef.current && atEnd(video)) {
+                replay()
+                return
+              }
+              setPaused(true)
+            }}
+            onTimeUpdate={() => {
+              const video = videoRef.current
+              const time = video?.currentTime || 0
+              if (time < 1) replayingRef.current = false
+              setCurrent(time)
+              if (video && loopRef.current && atEnd(video)) replay()
+            }}
             onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
-            onEnded={() => setPaused(true)}
+            onEnded={() => {
+              if (loopRef.current) replay()
+              else setPaused(true)
+            }}
           />
         ) : (
           <div className="mv-loading">
@@ -428,6 +493,22 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
           ) : null}
         </div>
         <div className="mv-action-end">
+        <button
+          type="button"
+          className={`danmaku-switch is-light${loop ? ' is-on' : ''}`}
+          role="switch"
+          aria-checked={loop}
+          aria-label={loop ? '关闭循环播放' : '打开循环播放'}
+          onClick={(event) => {
+            event.stopPropagation()
+            toggleLoop()
+          }}
+        >
+          <span>循环</span>
+          <span className="danmaku-switch-track" aria-hidden="true">
+            <span className="danmaku-switch-thumb" />
+          </span>
+        </button>
         <DanmakuSwitch light />
         <button
           type="button"

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MusicItem } from '../lib/types'
 import { SongRow } from './SongRow'
 
@@ -26,10 +26,27 @@ export function PlayQueueSheet({
   onPlayMv,
 }: Props) {
   const [tab, setTab] = useState<Tab>('queue')
+  const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (open) setTab('queue')
   }, [open])
+
+  useLayoutEffect(() => {
+    if (!open || tab !== 'queue' || !currentId) return
+    const align = () => {
+      const list = listRef.current
+      const row = list?.querySelector<HTMLElement>('.song-row.is-playing')
+      if (!list || !row || list.clientHeight < 1) return
+      const listRect = list.getBoundingClientRect()
+      const rowRect = row.getBoundingClientRect()
+      const next = list.scrollTop + (rowRect.top - listRect.top) - (list.clientHeight - rowRect.height) / 2
+      list.scrollTop = Math.max(0, next)
+    }
+    align()
+    const frame = requestAnimationFrame(align)
+    return () => cancelAnimationFrame(frame)
+  }, [open, tab, currentId, queue])
 
   if (!open) return null
 
@@ -72,7 +89,7 @@ export function PlayQueueSheet({
             <span>{recent.length}</span>
           </button>
         </div>
-        <div className="queue-list">
+        <div className="queue-list" ref={listRef}>
           {items.length === 0 ? (
             <div className="empty">{emptyText}</div>
           ) : (

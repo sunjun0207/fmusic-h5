@@ -24,11 +24,11 @@ import {
   saveTrackFile,
   type PendingDownload,
 } from './lib/download'
-import { coverUrl, getAvailableMvQualities, getMvUrl, getPlayMeta, getUpdate, postAccess, resolveMvInfo } from './lib/api'
+import { coverUrl, getAvailableMvQualities, getLyric, getMvUrl, getPlayMeta, getUpdate, postAccess, resolveMvInfo } from './lib/api'
 import { AppContext, type AppActions, type SongMenuExtra } from './lib/appContext'
 import { friendlyError, PICKS, TEXT } from './lib/brand'
 import { applyMediaLevel, getLevels, LEVELS_EVENT } from './lib/levels'
-import { createSongPlayer, hasNativeAudio, noteNativeTrack, prepareNativeNext, prepareNativePrev, type NativeTrackInfo } from './lib/nativeAudio'
+import { createSongPlayer, hasNativeAudio, noteNativeFavorite, noteNativeLyrics, noteNativeSong, noteNativeTrack, prepareNativeNext, prepareNativePrev, type NativeTrackInfo } from './lib/nativeAudio'
 import { nextPlayMode, resolveAdvance } from './lib/playback'
 import { bestMvQuality } from './lib/quality'
 import { clearSharedLink, readSharedLink, shareTarget, type ShareTarget } from './lib/share'
@@ -409,7 +409,8 @@ export default function App() {
       setCurrent(music)
       setDetail((d) => (d ? music : d))
       applyMediaLevel(audio, getLevels('song').volume)
-      noteNativeTrack(music.title, music.artist, coverUrl(music.image, 300))
+      noteNativeSong(music.id)
+      noteNativeTrack(music.title, music.artist, coverUrl(music.image, 300), isFavorite(music.id))
       if (audio.paused) await audio.play().catch(() => setPlaying(false))
       void primeNativeQueue()
       return
@@ -419,7 +420,8 @@ export default function App() {
     setCurrent(music)
     currentRef.current = music
     heardTimeRef.current = 0
-    noteNativeTrack(music.title, music.artist, coverUrl(music.image, 300))
+    noteNativeSong(music.id)
+    noteNativeTrack(music.title, music.artist, coverUrl(music.image, 300), isFavorite(music.id))
     if (audio.getAttribute('src') && !audio.paused) {
       skipEndRef.current = true
       userPauseRef.current = true
@@ -443,7 +445,7 @@ export default function App() {
       }
       loadedIdRef.current = music.id
       applyMediaLevel(audio, getLevels('song').volume)
-      noteNativeTrack(music.title, music.artist, coverUrl(music.image, 300))
+      noteNativeTrack(music.title, music.artist, coverUrl(music.image, 300), isFavorite(music.id))
       await audio.play()
       void primeNativeQueue()
       if (mvActiveRef.current) holdSong()
@@ -764,7 +766,8 @@ export default function App() {
         addRecentPlay(primed.item)
         setLibraryVersion((version) => version + 1)
         setDetail((song) => (song ? primed.item : song))
-        noteNativeTrack(primed.item.title, primed.item.artist, coverUrl(primed.item.image, 300))
+        noteNativeSong(primed.item.id)
+        noteNativeTrack(primed.item.title, primed.item.artist, coverUrl(primed.item.image, 300), isFavorite(primed.item.id))
       }
       setCurrentTime(0)
       setDuration(0)
@@ -855,15 +858,65 @@ export default function App() {
       else if (command === 'prev') playRelative(-1)
       else if (command === 'toggle') togglePlay()
       else if (command === 'close') stopPlayback()
+      else if (command === 'lyric') {
+        const song = currentRef.current
+        if (!song) return
+        void getLyric(song.id)
+          .then((lines) => {
+            if (currentRef.current?.id === song.id) noteNativeLyrics(lines)
+          })
+          .catch(() => {
+            if (currentRef.current?.id === song.id) noteNativeLyrics([])
+          })
+      } else if (command === 'favorite' || command.startsWith('favorite:')) {
+        const song = currentRef.current
+        if (!song) return
+        const want = command === 'favorite' ? !isFavorite(song.id) : command.endsWith('1')
+        if (isFavorite(song.id) === want) {
+          noteNativeFavorite(want)
+          return
+        }
+        toggleFavorite(song)
+        bumpLibrary()
+        notify(want ? TEXT.favorited : TEXT.unfavorited)
+      }
     }
     window.addEventListener('fmusic-native-command', onCommand)
     return () => window.removeEventListener('fmusic-native-command', onCommand)
-  }, [playRelative, togglePlay, stopPlayback])
+  }, [playRelative, togglePlay, stopPlayback, bumpLibrary, notify])
+
+  useEffect(() => {
+    if (!hasNativeAudio()) return
+    const song = current
+    if (!song) {
+      noteNativeSong('')
+      noteNativeLyrics([])
+      return
+    }
+    noteNativeSong(song.id)
+    let cancel = false
+    void getLyric(song.id)
+      .then((lines) => {
+        if (!cancel && currentRef.current?.id === song.id) noteNativeLyrics(lines)
+      })
+      .catch(() => {
+        if (!cancel && currentRef.current?.id === song.id) noteNativeLyrics([])
+      })
+    return () => {
+      cancel = true
+    }
+  }, [current?.id])
 
   useEffect(() => {
     if (!currentRef.current) return
     void primeNativeQueue()
   }, [queue, primeNativeQueue])
+
+  useEffect(() => {
+    const song = currentRef.current
+    if (!song) return
+    noteNativeFavorite(isFavorite(song.id))
+  }, [libraryVersion, current?.id])
 
   const openMusic = useCallback(
     (item: MusicItem, list?: MusicItem[]) => {

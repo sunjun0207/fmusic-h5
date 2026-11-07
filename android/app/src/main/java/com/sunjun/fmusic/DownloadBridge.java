@@ -57,7 +57,12 @@ public class DownloadBridge {
         DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
         request.setTitle(safe);
         request.setDescription("碎冰音乐");
-        request.setMimeType(mimeOf(safe));
+        String mime = mimeOf(safe);
+        request.setMimeType(mime);
+        if (mime.startsWith("image/")) {
+            request.addRequestHeader("Referer", "https://www.kuwo.cn/");
+            request.addRequestHeader("User-Agent", "Mozilla/5.0");
+        }
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
         request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, safe);
         try {
@@ -91,6 +96,8 @@ public class DownloadBridge {
         if (lower.endsWith(".mp4")) return "video/mp4";
         if (lower.endsWith(".png")) return "image/png";
         if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".gif")) return "image/gif";
         return "audio/mpeg";
     }
 

@@ -8,6 +8,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.media.AudioAttributes;
@@ -16,30 +17,42 @@ import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
 import android.support.v4.media.MediaMetadataCompat;
+import android.support.v4.media.RatingCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
+import java.util.ArrayList;
+import java.util.Collections;
+import android.widget.RemoteViews;
 import androidx.core.app.NotificationCompat;
-import androidx.media.app.NotificationCompat.MediaStyle;
+import androidx.media.app.NotificationCompat.DecoratedMediaCustomViewStyle;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
-/** 后台播放，并在通知栏提供上一首、暂停、下一首、打开应用和关闭。 */
+/** 后台播放。下拉卡片左侧是歌词，右侧是收藏，点歌词在卡片上切换歌词。 */
 public class PlaybackService extends Service {
 
     static final String CHANNEL_ID = "fmusic-media";
+    static final String EXTRA_COMMAND = "fmusic_command";
     private static final int NOTICE_ID = 4108;
     private static final String ACTION_PREV = "com.sunjun.fmusic.PREV";
     private static final String ACTION_TOGGLE = "com.sunjun.fmusic.TOGGLE";
     private static final String ACTION_NEXT = "com.sunjun.fmusic.NEXT";
     private static final String ACTION_CLOSE = "com.sunjun.fmusic.CLOSE";
+    private static final String ACTION_LYRIC = "com.sunjun.fmusic.LYRIC";
+    private static final String ACTION_FAVORITE = "com.sunjun.fmusic.FAVORITE";
 
     interface Sink {
         void onAudio(String type, double position, double duration, String extra);
@@ -67,6 +80,22 @@ public class PlaybackService extends Service {
     private static String pendingCover = "";
     private static Track pendingNext;
     private static Track pendingPrev;
+    private static boolean pendingFavored;
+    private static boolean hasPendingFavored;
+    private static String pendingLyrics;
+    private static boolean hasPendingLyrics;
+    private static String pendingSong = "";
+    private static boolean hasPendingSong;
+
+    private static final class Line {
+        final double time;
+        final String text;
+
+        Line(double time, String text) {
+            this.time = time;
+            this.text = text;
+        }
+    }
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MediaPlayer player;
@@ -87,6 +116,14 @@ public class PlaybackService extends Service {
     private boolean playingAudio;
     private boolean closing;
     private boolean allowResume;
+    private boolean favored;
+    private boolean lyricOn;
+    private boolean lyricLoaded;
+    private boolean lyricFetching;
+    private int lyricToken;
+    private int lyricIndex = -1;
+    private String songId = "";
+    private final ArrayList<Line> lyricLines = new ArrayList<>();
     private String lastControl = "";
     private long lastControlAt;
     private final AudioManager.OnAudioFocusChangeListener focusListener = this::onFocus;
@@ -103,6 +140,27 @@ public class PlaybackService extends Service {
         pendingTitle = title == null ? "" : title;
         pendingArtist = artist == null ? "" : artist;
         pendingCover = cover == null ? "" : cover;
+    }
+
+    static void rememberFavored(boolean on) {
+        pendingFavored = on;
+        hasPendingFavored = true;
+        PlaybackService service = instance;
+        if (service != null) service.setFavorited(on);
+    }
+
+    static void rememberLyrics(String payload) {
+        pendingLyrics = payload == null ? "" : payload;
+        hasPendingLyrics = true;
+        PlaybackService service = instance;
+        if (service != null) service.setLyrics(pendingLyrics);
+    }
+
+    static void rememberSong(String id) {
+        pendingSong = id == null ? "" : id.trim();
+        hasPendingSong = true;
+        PlaybackService service = instance;
+        if (service != null) service.setSong(pendingSong);
     }
 
     static void enqueuePlay(Context context, String url, String songTitle, String songArtist, String cover) {
@@ -146,6 +204,7 @@ public class PlaybackService extends Service {
         createChannel();
         session = new MediaSessionCompat(this, "fmusic");
         session.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
+        session.setRatingType(RatingCompat.RATING_HEART);
         session.setCallback(new MediaSessionCompat.Callback() {
             @Override
             public void onPlay() {
@@ -176,9 +235,40 @@ public class PlaybackService extends Service {
             public void onSeekTo(long pos) {
                 seek(pos / 1000d);
             }
+
+            @Override
+            public void onSetRating(RatingCompat rating) {
+                if (rating == null) return;
+                boolean on = rating.getRatingStyle() == RatingCompat.RATING_HEART && rating.hasHeart();
+                if (on == favored || !acceptControl("favorite")) return;
+                favored = on;
+                hasPendingFavored = false;
+                pendingFavored = on;
+                showForeground();
+                emit("command", 0, 0, on ? "favorite:1" : "favorite:0");
+            }
+
+            @Override
+            public void onCustomAction(String action, Bundle extras) {
+                handleAction(action);
+            }
         }, handler);
         session.setPlaybackToLocal(AudioManager.STREAM_MUSIC);
         session.setActive(true);
+        if (hasPendingFavored) {
+            favored = pendingFavored;
+            hasPendingFavored = false;
+        }
+        if (hasPendingLyrics) {
+            applyLyrics(pendingLyrics);
+            hasPendingLyrics = false;
+            pendingLyrics = null;
+        }
+        if (hasPendingSong) {
+            String id = pendingSong;
+            hasPendingSong = false;
+            setSong(id);
+        }
         if (!pendingTitle.isEmpty() || !pendingArtist.isEmpty() || !pendingCover.isEmpty()) {
             setMeta(pendingTitle, pendingArtist, pendingCover);
             pendingTitle = "";
@@ -204,22 +294,7 @@ public class PlaybackService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
-        if (ACTION_CLOSE.equals(action)) {
-            if (acceptControl("close")) closeFromNotification();
-            return START_NOT_STICKY;
-        }
-        if (ACTION_TOGGLE.equals(action)) {
-            if (acceptControl("toggle")) toggle();
-            return START_NOT_STICKY;
-        }
-        if (ACTION_NEXT.equals(action)) {
-            if (acceptControl("next")) skip(true);
-            return START_NOT_STICKY;
-        }
-        if (ACTION_PREV.equals(action)) {
-            if (acceptControl("prev")) skip(false);
-            return START_NOT_STICKY;
-        }
+        if (action != null && handleAction(action)) return START_NOT_STICKY;
         if (!foreground) showForeground();
         return START_NOT_STICKY;
     }
@@ -262,6 +337,158 @@ public class PlaybackService extends Service {
         allowResume = true;
         currentUrl = url;
         open(url);
+    }
+
+    void setSong(String id) {
+        if (id == null) id = "";
+        id = id.trim();
+        if (id.startsWith("MUSIC_")) id = id.substring(6);
+        hasPendingSong = false;
+        pendingSong = id;
+        if (id.equals(songId)) {
+            if (!lyricLoaded && !lyricFetching && !id.isEmpty()) beginLyricFetch();
+            return;
+        }
+        songId = id;
+        dropLyrics(false);
+        if (lyricOn && (foreground || player != null)) showForeground();
+        if (!id.isEmpty()) beginLyricFetch();
+    }
+
+    void setLyrics(String payload) {
+        hasPendingLyrics = false;
+        pendingLyrics = null;
+        if ((payload == null || payload.trim().isEmpty()) && !lyricLines.isEmpty()) {
+            lyricLoaded = true;
+            if (lyricOn) lyricIndex = lyricIndexAt(position());
+            if (foreground || player != null) showForeground();
+            return;
+        }
+        applyLyrics(payload);
+        if (lyricOn) lyricIndex = lyricIndexAt(position());
+        if (foreground || player != null) showForeground();
+    }
+
+    private void dropLyrics(boolean clearSong) {
+        lyricToken++;
+        lyricFetching = false;
+        if (clearSong) songId = "";
+        lyricLines.clear();
+        lyricIndex = -1;
+        lyricLoaded = false;
+    }
+
+    private void beginLyricFetch() {
+        if (songId.isEmpty() || lyricFetching) return;
+        lyricFetching = true;
+        lyricLoaded = false;
+        final String requested = songId;
+        final int token = lyricToken;
+        new Thread(() -> {
+            String payload = downloadLyric(requested);
+            handler.post(() -> {
+                if (token != lyricToken || !requested.equals(songId)) return;
+                lyricFetching = false;
+                if ((payload == null || payload.isEmpty()) && !lyricLines.isEmpty()) {
+                    lyricLoaded = true;
+                } else {
+                    applyLyrics(payload == null ? "" : payload);
+                }
+                if (lyricOn) lyricIndex = lyricIndexAt(position());
+                if (foreground || player != null) showForeground();
+            });
+        }, "fmusic-lyric").start();
+    }
+
+    private String downloadLyric(String id) {
+        String encoded = Uri.encode(id);
+        String payload = requestLyric("https://www.kuwo.cn/openapi/v1/www/lyric/getlyric?musicId=" + encoded);
+        if (payload != null && !payload.isEmpty()) return payload;
+        return requestLyric("https://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId=" + encoded);
+    }
+
+    private String requestLyric(String address) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) new URL(address).openConnection();
+            connection.setConnectTimeout(8000);
+            connection.setReadTimeout(12000);
+            connection.setInstanceFollowRedirects(true);
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+            connection.setRequestProperty("Referer", "https://www.kuwo.cn/");
+            int code = connection.getResponseCode();
+            if (code < 200 || code >= 300) return "";
+            return lyricPayload(readLimited(connection.getInputStream()));
+        } catch (Exception ignored) {
+            return "";
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private String readLimited(InputStream stream) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int total = 0;
+        int read;
+        while ((read = stream.read(buffer)) != -1) {
+            total += read;
+            if (total > 1500000) break;
+            out.write(buffer, 0, read);
+        }
+        stream.close();
+        return out.toString(StandardCharsets.UTF_8.name());
+    }
+
+    private String lyricPayload(String json) {
+        try {
+            JSONObject data = new JSONObject(json).optJSONObject("data");
+            if (data == null) return "";
+            JSONArray list = data.optJSONArray("lrclist");
+            if (list == null) list = data.optJSONArray("lrcList");
+            if (list == null) return "";
+            StringBuilder builder = new StringBuilder();
+            for (int i = 0; i < list.length(); i++) {
+                JSONObject row = list.optJSONObject(i);
+                if (row == null) continue;
+                String text = row.optString("lineLyric", "").replace('\t', ' ').replace('\n', ' ').replace('\r', ' ').trim();
+                if (text.isEmpty()) continue;
+                if (builder.length() > 0) builder.append('\n');
+                builder.append(row.optString("time", "0").trim()).append('\t').append(text);
+            }
+            return builder.toString();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private void applyLyrics(String payload) {
+        lyricLoaded = true;
+        lyricLines.clear();
+        if (payload == null || payload.isEmpty()) return;
+        String[] rows = payload.split("\n");
+        for (String row : rows) {
+            int tab = row.indexOf('\t');
+            if (tab <= 0) continue;
+            double time;
+            try {
+                time = Double.parseDouble(row.substring(0, tab).trim());
+            } catch (NumberFormatException error) {
+                continue;
+            }
+            String text = row.substring(tab + 1).trim();
+            if (text.isEmpty()) continue;
+            lyricLines.add(new Line(time, text));
+        }
+        Collections.sort(lyricLines, (a, b) -> Double.compare(a.time, b.time));
+    }
+
+    void setFavorited(boolean on) {
+        hasPendingFavored = false;
+        pendingFavored = on;
+        if (favored == on) return;
+        favored = on;
+        if (foreground || player != null) showForeground();
     }
 
     void setMeta(String nextTitle, String nextArtist, String nextCover) {
@@ -321,6 +548,73 @@ public class PlaybackService extends Service {
         if (active) emit("paused", 0, 0, "");
     }
 
+    private boolean handleAction(String action) {
+        if (ACTION_CLOSE.equals(action)) {
+            if (acceptControl("close")) closeFromNotification();
+            return true;
+        }
+        if (ACTION_TOGGLE.equals(action)) {
+            if (acceptControl("toggle")) toggle();
+            return true;
+        }
+        if (ACTION_NEXT.equals(action)) {
+            if (acceptControl("next")) skip(true);
+            return true;
+        }
+        if (ACTION_PREV.equals(action)) {
+            if (acceptControl("prev")) skip(false);
+            return true;
+        }
+        if (ACTION_LYRIC.equals(action)) {
+            if (acceptControl("lyric")) toggleLyric();
+            return true;
+        }
+        if (ACTION_FAVORITE.equals(action)) {
+            if (acceptControl("favorite")) emit("command", 0, 0, "favorite");
+            return true;
+        }
+        return false;
+    }
+
+    private void toggleLyric() {
+        lyricOn = !lyricOn;
+        lyricIndex = lyricOn ? lyricIndexAt(position()) : -1;
+        if (lyricOn && lyricLines.isEmpty() && !lyricFetching) beginLyricFetch();
+        if (lyricOn) emit("command", 0, 0, "lyric");
+        showForeground();
+    }
+
+    private int lyricIndexAt(double seconds) {
+        int found = -1;
+        for (int i = 0; i < lyricLines.size(); i++) {
+            if (lyricLines.get(i).time <= seconds + 0.08) found = i;
+            else break;
+        }
+        return found;
+    }
+
+    private String lyricText(int index) {
+        if (index < 0 || index >= lyricLines.size()) return "";
+        return lyricLines.get(index).text;
+    }
+
+    private String currentLyricLine() {
+        int index = lyricIndexAt(position());
+        String line = lyricText(index);
+        if (!line.isEmpty()) {
+            String next = lyricText(index + 1);
+            return next.isEmpty() ? line : line + "\n" + next;
+        }
+        if (!lyricLoaded) return "歌词加载中";
+        return "暂无歌词";
+    }
+
+    private String songCredit() {
+        if (title.isEmpty()) return artist;
+        if (artist.isEmpty()) return title;
+        return title + " · " + artist;
+    }
+
     private void closeFromNotification() {
         if (closing) return;
         closing = true;
@@ -373,6 +667,7 @@ public class PlaybackService extends Service {
     private void startQueued(Track track) {
         nextTrack = null;
         prevTrack = null;
+        dropLyrics(true);
         if (track.title != null && !track.title.isEmpty()) title = track.title;
         if (track.artist != null && !track.artist.isEmpty()) artist = track.artist;
         if (track.cover != null && !track.cover.equals(coverUrl)) {
@@ -450,6 +745,13 @@ public class PlaybackService extends Service {
         public void run() {
             if (player == null || completed || !safePlaying()) return;
             emit("time", position(), duration(), "");
+            if (lyricOn) {
+                int next = lyricIndexAt(position());
+                if (next != lyricIndex) {
+                    lyricIndex = next;
+                    showForeground();
+                }
+            }
             handler.postDelayed(this, 500);
         }
     };
@@ -550,12 +852,12 @@ public class PlaybackService extends Service {
         publishSession();
         int playIcon = playingAudio ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play;
         String playLabel = playingAudio ? "暂停" : "播放";
+        RemoteViews player = playerView();
         Notification notice = new NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_music)
             .setLargeIcon(largeIcon)
-            .setContentTitle(title)
-            .setContentText(artist)
-            .setSubText("碎冰音乐")
+            .setContentTitle(lyricOn ? currentLyricLine().replace('\n', ' ') : title)
+            .setContentText(lyricOn ? songCredit() : artist)
             .setContentIntent(openApp())
             .setDeleteIntent(actionIntent(ACTION_CLOSE, 4))
             .setOngoing(playingAudio)
@@ -564,12 +866,12 @@ public class PlaybackService extends Service {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
             .setColor(0xFF1AA6A0)
+            .setCustomContentView(player)
+            .setCustomBigContentView(player)
             .addAction(new NotificationCompat.Action(android.R.drawable.ic_media_previous, "上一首", actionIntent(ACTION_PREV, 1)))
             .addAction(new NotificationCompat.Action(playIcon, playLabel, actionIntent(ACTION_TOGGLE, 2)))
             .addAction(new NotificationCompat.Action(android.R.drawable.ic_media_next, "下一首", actionIntent(ACTION_NEXT, 3)))
-            .addAction(new NotificationCompat.Action(R.drawable.ic_stat_open, "打开", openApp()))
-            .addAction(new NotificationCompat.Action(R.drawable.ic_stat_close, "关闭", actionIntent(ACTION_CLOSE, 5)))
-            .setStyle(new MediaStyle()
+            .setStyle(new DecoratedMediaCustomViewStyle()
                 .setMediaSession(session == null ? null : session.getSessionToken())
                 .setShowActionsInCompactView(0, 1, 2))
             .build();
@@ -592,6 +894,16 @@ public class PlaybackService extends Service {
         int state = playingAudio
             ? PlaybackStateCompat.STATE_PLAYING
             : (currentUrl.isEmpty() ? PlaybackStateCompat.STATE_STOPPED : PlaybackStateCompat.STATE_PAUSED);
+        PlaybackStateCompat.CustomAction lyricAction = new PlaybackStateCompat.CustomAction.Builder(
+            ACTION_LYRIC,
+            lyricOn ? "关闭歌词" : "词",
+            lyricOn ? R.drawable.ic_stat_lyric_on : R.drawable.ic_stat_lyric
+        ).setExtras(new Bundle()).build();
+        PlaybackStateCompat.CustomAction favAction = new PlaybackStateCompat.CustomAction.Builder(
+            ACTION_FAVORITE,
+            favored ? "取消收藏" : "收藏",
+            favored ? R.drawable.ic_stat_heart : R.drawable.ic_stat_heart_outline
+        ).setExtras(new Bundle()).build();
         session.setPlaybackState(new PlaybackStateCompat.Builder()
             .setActions(
                 PlaybackStateCompat.ACTION_PLAY
@@ -601,13 +913,21 @@ public class PlaybackService extends Service {
                     | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
                     | PlaybackStateCompat.ACTION_STOP
                     | PlaybackStateCompat.ACTION_SEEK_TO
+                    | PlaybackStateCompat.ACTION_SET_RATING
             )
+            .addCustomAction(lyricAction)
+            .addCustomAction(favAction)
             .setState(state, (long) (position() * 1000), playingAudio ? 1f : 0f)
             .build());
+        String shownTitle = lyricOn ? currentLyricLine().replace('\n', ' ') : title;
+        String shownText = lyricOn ? songCredit() : artist;
         MediaMetadataCompat.Builder meta = new MediaMetadataCompat.Builder()
-            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
-            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, artist)
-            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, (long) (duration() * 1000));
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, shownTitle)
+            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, shownText)
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, shownTitle)
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, shownText)
+            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, (long) (duration() * 1000))
+            .putRating(MediaMetadataCompat.METADATA_KEY_USER_RATING, RatingCompat.newHeartRating(favored));
         if (largeIcon != null) meta.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, largeIcon);
         session.setMetadata(meta.build());
     }
@@ -653,6 +973,35 @@ public class PlaybackService extends Service {
         } finally {
             if (conn != null) conn.disconnect();
         }
+    }
+
+    private RemoteViews playerView() {
+        RemoteViews views = new RemoteViews(getPackageName(), R.layout.notification_player);
+        boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        int ink = night ? 0xFFFFFFFF : 0xFF1A1A1A;
+        int mute = night ? 0xFFB8C4C2 : 0xFF5C6B68;
+        if (lyricOn) {
+            views.setTextViewText(R.id.notif_title, currentLyricLine());
+            views.setTextColor(R.id.notif_title, ink);
+            views.setTextViewText(R.id.notif_artist, songCredit());
+            views.setTextColor(R.id.notif_artist, mute);
+            views.setTextColor(R.id.notif_lyric_btn, 0xFFFFFFFF);
+            views.setInt(R.id.notif_lyric_btn, "setBackgroundResource", R.drawable.bg_notif_chip_on);
+        } else {
+            views.setTextViewText(R.id.notif_title, title);
+            views.setTextColor(R.id.notif_title, ink);
+            views.setTextViewText(R.id.notif_artist, artist);
+            views.setTextColor(R.id.notif_artist, mute);
+            views.setTextColor(R.id.notif_lyric_btn, ink);
+            views.setInt(R.id.notif_lyric_btn, "setBackgroundResource", R.drawable.bg_notif_chip);
+        }
+        if (largeIcon != null) views.setImageViewBitmap(R.id.notif_cover, largeIcon);
+        else views.setImageViewResource(R.id.notif_cover, R.drawable.ic_stat_music);
+        views.setImageViewResource(R.id.notif_fav, favored ? R.drawable.ic_stat_heart : R.drawable.ic_stat_heart_outline);
+        views.setInt(R.id.notif_fav, "setColorFilter", favored ? 0xFFE11D48 : ink);
+        views.setOnClickPendingIntent(R.id.notif_lyric_btn, actionIntent(ACTION_LYRIC, 8));
+        views.setOnClickPendingIntent(R.id.notif_fav, actionIntent(ACTION_FAVORITE, 9));
+        return views;
     }
 
     private PendingIntent openApp() {

@@ -43,6 +43,21 @@ public class FMusicAudio {
     }
 
     @JavascriptInterface
+    public void setFavorited(boolean on) {
+        activity.runOnUiThread(() -> PlaybackService.rememberFavored(on));
+    }
+
+    @JavascriptInterface
+    public void setLyrics(String payload) {
+        activity.runOnUiThread(() -> PlaybackService.rememberLyrics(payload));
+    }
+
+    @JavascriptInterface
+    public void setSong(String id) {
+        activity.runOnUiThread(() -> PlaybackService.rememberSong(id));
+    }
+
+    @JavascriptInterface
     public void pause() {
         activity.runOnUiThread(() -> {
             PlaybackService service = PlaybackService.get();

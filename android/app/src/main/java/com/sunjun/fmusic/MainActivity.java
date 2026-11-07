@@ -1,6 +1,7 @@
 package com.sunjun.fmusic;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -8,6 +9,7 @@ import android.webkit.WebView;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
+import org.json.JSONObject;
 
 public class MainActivity extends BridgeActivity {
 
@@ -25,6 +27,30 @@ public class MainActivity extends BridgeActivity {
         super.onStart();
         installHooks();
         askNotification();
+        deliverCommand(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        deliverCommand(intent);
+    }
+
+    private void deliverCommand(Intent intent) {
+        if (intent == null) return;
+        String command = intent.getStringExtra(PlaybackService.EXTRA_COMMAND);
+        if (command == null || command.isEmpty()) return;
+        if (getBridge() == null || getBridge().getWebView() == null) return;
+        intent.removeExtra(PlaybackService.EXTRA_COMMAND);
+        WebView webView = getBridge().getWebView();
+        String script =
+            "window.__fmusicAudioEvent&&window.__fmusicAudioEvent('command',0,0," +
+            JSONObject.quote(command) +
+            ")";
+        webView.post(() -> {
+            if (Build.VERSION.SDK_INT >= 19) webView.evaluateJavascript(script, null);
+        });
     }
 
     private void askNotification() {

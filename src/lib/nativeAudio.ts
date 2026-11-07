@@ -3,6 +3,9 @@ type NativeAudio = {
   prepareNext: (url: string, title: string, artist: string, cover: string) => void
   preparePrev: (url: string, title: string, artist: string, cover: string) => void
   setMeta: (title: string, artist: string, cover: string) => void
+  setFavorited?: (on: boolean) => void
+  setLyrics?: (payload: string) => void
+  setSong?: (id: string) => void
   pause: () => void
   seek: (seconds: number) => void
   volume: (level: number) => void
@@ -52,9 +55,28 @@ export function prepareNativePrev(info: NativeTrackInfo | null) {
   sendTrack('prev', info)
 }
 
-export function noteNativeTrack(title: string, artist: string, cover = '') {
+export function noteNativeTrack(title: string, artist: string, cover = '', favored = false) {
   pendingMeta = { url: '', title: title || '', artist: artist || '', cover: cover || '' }
-  bridge()?.setMeta(pendingMeta.title, pendingMeta.artist, pendingMeta.cover)
+  const native = bridge()
+  native?.setMeta(pendingMeta.title, pendingMeta.artist, pendingMeta.cover)
+  native?.setFavorited?.(favored)
+}
+
+export function noteNativeFavorite(favored: boolean) {
+  bridge()?.setFavorited?.(favored)
+}
+
+export function noteNativeSong(id: string) {
+  const songId = (id || '').replace(/^MUSIC_/i, '')
+  bridge()?.setSong?.(songId)
+}
+
+export function noteNativeLyrics(lines: { time: number; lineLyric: string }[]) {
+  const payload = lines
+    .filter((line) => line.lineLyric)
+    .map((line) => `${Number(line.time) || 0}\t${line.lineLyric.replace(/[\t\r\n]/g, ' ')}`)
+    .join('\n')
+  bridge()?.setLyrics?.(payload)
 }
 
 class NativeSongPlayer extends EventTarget {

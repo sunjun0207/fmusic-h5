@@ -92,7 +92,7 @@ export function SettingPage() {
         </div>
         <div className="setting-row">
           <div>版本</div>
-          <div className="song-sub">{APP_VERSION} {hasNativeNet() || isNativeApp() ? 'Android · 13' : 'H5'}</div>
+          <div className="song-sub">{APP_VERSION} {hasNativeNet() || isNativeApp() ? 'Android · 22' : 'H5'}</div>
         </div>
         <div className="setting-row">
           <div>联系邮箱</div>

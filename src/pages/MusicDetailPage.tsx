@@ -110,6 +110,8 @@ type Props = {
   onEnsurePlay: (music: MusicItem, br?: string) => Promise<void>
   /** 变化时直接展开评论区（从社区、歌曲菜单进来）。 */
   commentsToken?: number
+  /** 变化时展开歌词（通知栏点「歌词」）。 */
+  lyricToken?: number
 }
 
 export function MusicDetailPage({
@@ -120,6 +122,7 @@ export function MusicDetailPage({
   canPrev,
   canNext,
   commentsToken = 0,
+  lyricToken = 0,
   onBack,
   onTogglePlay,
   onSeek,
@@ -192,6 +195,17 @@ export function MusicDetailPage({
     setLyricOpen(false)
     setCommentsOpen(true)
   }, [commentsToken])
+
+  useEffect(() => {
+    if (!lyricToken) return
+    setCommentsOpen(false)
+    setLyricOpen(true)
+    saveShowLyric(true)
+  }, [lyricToken])
+
+  useEffect(() => {
+    setFav(isFavorite(music.id))
+  }, [music.id, app.libraryVersion])
 
   useEffect(() => {
     if (!commentsOpen) return

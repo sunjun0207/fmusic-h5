@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { trackFilename } from '../lib/download'
-import { imageProxyUrl } from '../lib/source'
+import { requestDownload, trackFilename } from '../lib/download'
+import { imageProxyUrl, isNativeApp } from '../lib/source'
 
 export type PosterSlide = {
   src: string
@@ -64,6 +64,12 @@ export function PosterPreview({ slides, index, title, artist, onIndex, onClose }
     setSaving(true)
     setMessage('')
     try {
+      if (isNativeApp()) {
+        const filename = trackFilename(title, artist, imageExt('', slide.src), slide.kind)
+        await requestDownload(slide.src, filename)
+        setMessage(`已开始保存 ${filename}`)
+        return
+      }
       const res = await readImage(slide.src)
       const type = res.headers.get('content-type') ?? ''
       if (type && !type.toLowerCase().startsWith('image/')) throw new Error('保存到的不是图片')

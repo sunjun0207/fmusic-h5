@@ -82,6 +82,14 @@ public class FMusicAudio {
     }
 
     @JavascriptInterface
+    public void yield() {
+        activity.runOnUiThread(() -> {
+            PlaybackService service = PlaybackService.get();
+            if (service != null) service.yieldForVideo();
+        });
+    }
+
+    @JavascriptInterface
     public void stop() {
         activity.runOnUiThread(() -> {
             PlaybackService service = PlaybackService.get();

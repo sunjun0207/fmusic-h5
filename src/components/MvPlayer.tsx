@@ -5,6 +5,7 @@ import { DanmakuLayer } from './DanmakuLayer'
 import { DanmakuSwitch, useDanmakuSetting } from './DanmakuSwitch'
 import { PlaybackLevels, usePlaybackLevels } from './LevelSlider'
 import { applyMediaLevel, getLevels } from '../lib/levels'
+import { yieldNativeAudio } from '../lib/nativeAudio'
 import { formatBytes, requestDownload, trackFilename } from '../lib/download'
 import { MV_QUALITIES, mvLabel, visibleMvQuality } from '../lib/quality'
 import { upsertDownload } from '../lib/storage'
@@ -36,6 +37,8 @@ type IOSVideo = HTMLVideoElement & {
 type ScreenBridge = {
   landscape: () => void
   portrait: () => void
+  begin?: () => void
+  end?: () => void
 }
 
 function nativeScreen(): ScreenBridge | null {
@@ -69,9 +72,12 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   const { volume, brightness } = usePlaybackLevels('mv')
   const [danmakuBox, setDanmakuBox] = useState({ top: 12, left: 8, right: 8 })
   const [qualityOpen, setQualityOpen] = useState(false)
+  const [level, setLevel] = useState<'volume' | 'brightness' | null>(null)
   const [loop, setLoop] = useState(false)
   const loopRef = useRef(false)
   const replayingRef = useRef(false)
+  const wantPlayRef = useRef(false)
+  const playTries = useRef(0)
   const hideTimer = useRef(0)
   loopRef.current = loop
 
@@ -79,12 +85,13 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
     window.clearTimeout(hideTimer.current)
     hideTimer.current = window.setTimeout(() => {
       setQualityOpen(false)
+      setLevel(null)
       setChrome(false)
     }, 3000)
   }, [])
 
   const keepChrome = (event: ReactPointerEvent) => {
-    if (!chrome || qualityOpen) return
+    if (!chrome || qualityOpen || level) return
     const stage = stageRef.current
     if (stage && event.target instanceof Node && stage.contains(event.target)) return
     scheduleHide()
@@ -120,7 +127,15 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   }, [onClose])
 
   useEffect(() => {
-    return () => setNativeLandscape(false)
+    document.documentElement.classList.add('mv-open')
+    nativeScreen()?.begin?.()
+    return () => {
+      document.documentElement.classList.remove('mv-open')
+      document.documentElement.classList.remove('mv-native-full')
+      const bridge = nativeScreen()
+      if (bridge?.end) bridge.end()
+      else setNativeLandscape(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -141,6 +156,9 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
     applyMediaLevel(video, getLevels('mv').volume)
     video.src = url
     video.load()
+    yieldNativeAudio()
+    wantPlayRef.current = true
+    playTries.current = 0
     void video.play().catch(() => setPaused(true))
     const onBegin = () => setFullscreen(true)
     const onEnd = () => setFullscreen(false)
@@ -196,9 +214,14 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       video.style.objectFit = 'contain'
       const pictureTop = Math.max(0, (sh - pictureHeight) / 2)
       const pictureLeft = Math.max(0, (sw - pictureWidth) / 2)
-      const head = chrome ? stage.parentElement?.querySelector('.mv-head') : null
-      const headBottom = head instanceof HTMLElement ? head.offsetHeight : 0
-      const top = headBottom > pictureTop ? Math.max(pictureTop + 8, headBottom + 4) : pictureTop + 8
+      let top = pictureTop + 8
+      if (fullscreen && chrome) {
+        const head = stage.parentElement?.querySelector('.mv-head')
+        if (head instanceof HTMLElement) {
+          const headBottom = head.getBoundingClientRect().bottom - stage.getBoundingClientRect().top
+          if (headBottom > top) top = headBottom + 4
+        }
+      }
       setDanmakuBox({
         top: Math.round(top),
         left: Math.round(pictureLeft + 8),
@@ -218,13 +241,13 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   }, [url, chrome, fullscreen])
 
   useEffect(() => {
-    if (!chrome || qualityOpen) {
+    if (!chrome || qualityOpen || level) {
       window.clearTimeout(hideTimer.current)
       return
     }
     scheduleHide()
     return () => window.clearTimeout(hideTimer.current)
-  }, [chrome, qualityOpen, url, scheduleHide])
+  }, [chrome, qualityOpen, level, url, scheduleHide])
 
   const toggleFullscreen = async () => {
     const layer = layerRef.current
@@ -300,8 +323,18 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   const toggle = () => {
     const video = videoRef.current
     if (!video) return
-    if (video.paused) void video.play().catch(() => setPaused(true))
-    else video.pause()
+    if (video.paused) {
+      wantPlayRef.current = true
+      playTries.current = 0
+      yieldNativeAudio()
+      void video.play().catch(() => {
+        wantPlayRef.current = false
+        setPaused(true)
+      })
+    } else {
+      wantPlayRef.current = false
+      video.pause()
+    }
   }
 
   const download = async () => {
@@ -351,27 +384,46 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       aria-label={`${music.title} MV`}
     >
       <header className="mv-chrome mv-head">
-        <button type="button" className="mv-pill" onClick={onClose} aria-label="关闭">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+        <button
+          type="button"
+          className="mv-icon"
+          onClick={() => {
+            const video = videoRef.current
+            if (video) {
+              video.pause()
+              video.removeAttribute('src')
+              video.load()
+            }
+            onClose()
+          }}
+          aria-label="关闭"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
             <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
           </svg>
-          <span>关闭</span>
         </button>
         <div className="mv-heading">
           <strong>{music.title}</strong>
           <span>{music.artist} · MV</span>
         </div>
-        <button type="button" className="mv-pill" onClick={() => void download()} disabled={!url || saving || loading} aria-label="下载">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+        <button type="button" className="mv-icon" onClick={() => void download()} disabled={!url || saving || loading} aria-label={saving ? '下载中' : '下载'}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M12 4v11" strokeLinecap="round" />
             <path d="m7.5 11.5 4.5 4.5 4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M5 20h14" strokeLinecap="round" />
           </svg>
-          <span>{saving ? '下载中' : '下载'}</span>
         </button>
       </header>
 
-      <div ref={stageRef} className="mv-stage" onClick={() => setChrome((open) => !open)}>
+      <div
+        ref={stageRef}
+        className="mv-stage"
+        onClick={() => {
+          setLevel(null)
+          setQualityOpen(false)
+          setChrome((open) => !open)
+        }}
+      >
         {url ? (
           <video
             key={url}
@@ -380,7 +432,10 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
             poster={coverUrl(music.mvPic) || coverUrl(music.image) || undefined}
             playsInline
             preload="auto"
-            onPlay={() => setPaused(false)}
+            onPlay={() => {
+              yieldNativeAudio()
+              setPaused(false)
+            }}
             onPause={() => {
               const video = videoRef.current
               if (replayingRef.current) return
@@ -388,6 +443,19 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
                 replay()
                 return
               }
+              if (wantPlayRef.current && video && !video.ended && playTries.current < 2) {
+                playTries.current += 1
+                window.setTimeout(() => {
+                  if (!wantPlayRef.current || !video.paused) return
+                  yieldNativeAudio()
+                  void video.play().catch(() => {
+                    wantPlayRef.current = false
+                    setPaused(true)
+                  })
+                }, 120)
+                return
+              }
+              wantPlayRef.current = false
               setPaused(true)
             }}
             onTimeUpdate={() => {
@@ -447,19 +515,55 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
           {fmt(current)} / {fmt(duration)}
         </span>
         </div>
-        <PlaybackLevels scope="mv" tone="dark" />
-        <div className="mv-actions">
+        {level ? <PlaybackLevels scope="mv" tone="dark" only={level} /> : null}
+        {message ? <p className="mv-message">{message}</p> : null}
+        <div className="mv-tools">
+        <button
+          type="button"
+          className={`mv-icon${level === 'volume' ? ' is-on' : ''}`}
+          aria-pressed={level === 'volume'}
+          aria-label="音量"
+          onClick={() => {
+            setQualityOpen(false)
+            setLevel((current) => (current === 'volume' ? null : 'volume'))
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="M4.5 10v4h3.1L12 18.2V5.8L7.6 10H4.5Z" strokeLinejoin="round" />
+            {volume === 0 ? <path d="M16 10.2 20 14.2M20 10.2 16 14.2" strokeLinecap="round" /> : null}
+            {volume > 0 ? <path d="M15.4 9.3a3.4 3.4 0 0 1 0 5.4" strokeLinecap="round" /> : null}
+            {volume > 45 ? <path d="M17.7 7.2a6.2 6.2 0 0 1 0 9.6" strokeLinecap="round" /> : null}
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={`mv-icon${level === 'brightness' ? ' is-on' : ''}`}
+          aria-pressed={level === 'brightness'}
+          aria-label="亮度"
+          onClick={() => {
+            setQualityOpen(false)
+            setLevel((current) => (current === 'brightness' ? null : 'brightness'))
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.1" />
+            <path d="M12 3.6v2.1M12 18.3v2.1M3.6 12h2.1M18.3 12h2.1M6.1 6.1l1.5 1.5M16.4 16.4l1.5 1.5M17.9 6.1l-1.5 1.5M7.6 16.4l-1.5 1.5" strokeLinecap="round" />
+          </svg>
+        </button>
         <div className={`mv-quality${qualityOpen ? ' is-open' : ''}`}>
           <button
             type="button"
             className="mv-pill"
             aria-haspopup="listbox"
             aria-expanded={qualityOpen}
+            aria-label={`清晰度 ${mvLabel(quality)}`}
             disabled={loading}
-            onClick={() => setQualityOpen((open) => !open)}
+            onClick={() => {
+              setLevel(null)
+              setQualityOpen((open) => !open)
+            }}
           >
-            <span>清晰度</span>
-            <span>{mvLabel(quality)}</span>
+            {mvLabel(quality)}
           </button>
           {qualityOpen ? (
             <div className="mv-quality-menu" role="listbox" aria-label="清晰度">
@@ -495,7 +599,7 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
         <div className="mv-action-end">
         <button
           type="button"
-          className={`danmaku-switch is-light${loop ? ' is-on' : ''}`}
+          className={`danmaku-switch is-light is-compact${loop ? ' is-on' : ''}`}
           role="switch"
           aria-checked={loop}
           aria-label={loop ? '关闭循环播放' : '打开循环播放'}
@@ -509,10 +613,10 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
             <span className="danmaku-switch-thumb" />
           </span>
         </button>
-        <DanmakuSwitch light />
+        <DanmakuSwitch light compact />
         <button
           type="button"
-          className={`mv-pill mv-full${fullscreen ? ' is-on' : ''}`}
+          className={`mv-icon mv-full${fullscreen ? ' is-on' : ''}`}
           onClick={() => void toggleFullscreen()}
           disabled={!url}
           aria-label={fullscreen ? '退出全屏' : '全屏'}
@@ -532,12 +636,10 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
               <path d="M4 16v3a1 1 0 0 0 1 1h3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           )}
-          <span>{fullscreen ? '退出全屏' : '全屏'}</span>
         </button>
         </div>
         </div>
       </div>
-      {message ? <p className="mv-chrome mv-message">{message}</p> : null}
     </div>
   )
 }

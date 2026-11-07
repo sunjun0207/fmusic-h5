@@ -27,6 +27,19 @@ public class ScreenBridge {
     }
 
     @JavascriptInterface
+    public void begin() {
+        activity.runOnUiThread(() -> paint(true, false));
+    }
+
+    @JavascriptInterface
+    public void end() {
+        activity.runOnUiThread(() -> {
+            paint(false, false);
+            activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        });
+    }
+
+    @JavascriptInterface
     public void landscape() {
         activity.runOnUiThread(() -> apply(true));
     }
@@ -37,28 +50,34 @@ public class ScreenBridge {
     }
 
     private void apply(boolean landscape) {
+        paint(true, landscape);
+        if (activity.isFinishing()) return;
+        activity.setRequestedOrientation(
+            landscape
+                ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        );
+    }
+
+    private void paint(boolean playing, boolean landscape) {
         if (activity.isFinishing()) return;
         Window window = activity.getWindow();
-        WindowCompat.setDecorFitsSystemWindows(window, !landscape);
+        boolean edgeToEdge = playing && landscape;
+        WindowCompat.setDecorFitsSystemWindows(window, !edgeToEdge);
         if (Build.VERSION.SDK_INT >= 28) {
             WindowManager.LayoutParams attrs = window.getAttributes();
-            attrs.layoutInDisplayCutoutMode = landscape
+            attrs.layoutInDisplayCutoutMode = edgeToEdge
                 ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
                 : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT;
             window.setAttributes(attrs);
         }
-        int color = landscape ? Color.BLACK : PAGE;
+        int color = playing ? Color.BLACK : PAGE;
         window.setStatusBarColor(color);
         window.setNavigationBarColor(color);
         window.getDecorView().setBackgroundColor(color);
         View content = activity.findViewById(android.R.id.content);
         if (content != null) content.setBackgroundColor(color);
         webView.setBackgroundColor(color);
-        activity.setRequestedOrientation(
-            landscape
-                ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-                : ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-        );
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, webView);
         if (controller != null) {
             if (landscape) {
@@ -66,8 +85,8 @@ public class ScreenBridge {
                 controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
             } else {
                 controller.show(WindowInsetsCompat.Type.systemBars());
-                controller.setAppearanceLightStatusBars(true);
-                controller.setAppearanceLightNavigationBars(true);
+                controller.setAppearanceLightStatusBars(!playing);
+                controller.setAppearanceLightNavigationBars(!playing);
             }
         }
         webView.post(webView::requestLayout);

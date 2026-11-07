@@ -28,7 +28,7 @@ import { coverUrl, getAvailableMvQualities, getLyric, getMvUrl, getPlayMeta, get
 import { AppContext, type AppActions, type SongMenuExtra } from './lib/appContext'
 import { friendlyError, PICKS, TEXT } from './lib/brand'
 import { applyMediaLevel, getLevels, LEVELS_EVENT } from './lib/levels'
-import { createSongPlayer, hasNativeAudio, noteNativeFavorite, noteNativeLyrics, noteNativeSong, noteNativeTrack, prepareNativeNext, prepareNativePrev, type NativeTrackInfo } from './lib/nativeAudio'
+import { createSongPlayer, hasNativeAudio, noteNativeFavorite, noteNativeLyrics, noteNativeSong, noteNativeTrack, prepareNativeNext, prepareNativePrev, yieldNativeAudio, type NativeTrackInfo } from './lib/nativeAudio'
 import { nextPlayMode, resolveAdvance } from './lib/playback'
 import { bestMvQuality } from './lib/quality'
 import { clearSharedLink, readSharedLink, shareTarget, type ShareTarget } from './lib/share'
@@ -304,6 +304,7 @@ export default function App() {
         time: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
       }
     }
+    yieldNativeAudio()
     if (!audio.paused) userPauseRef.current = true
     audio.pause()
     audio.muted = true
@@ -334,7 +335,14 @@ export default function App() {
       if (audio.readyState >= 1) applyTime()
       else audio.addEventListener('loadedmetadata', applyTime, { once: true })
     }
-    if (resume) void audio.play().catch(() => setPlaying(false))
+    if (resume) {
+      const time = held?.time ?? 0
+      void audio.play()
+        .then(() => {
+          if (time > 0.5) audio.currentTime = time
+        })
+        .catch(() => setPlaying(false))
+    }
   }, [])
 
   const closeMv = useCallback((resume = true) => {
@@ -346,7 +354,10 @@ export default function App() {
     setMvLoading(false)
     const shouldResume = resume && resumeAudioRef.current
     resumeAudioRef.current = false
-    releaseSong(shouldResume)
+    window.setTimeout(() => {
+      if (mvActiveRef.current) return
+      releaseSong(shouldResume)
+    }, 160)
   }, [releaseSong])
 
   const reportPlayError = useCallback(

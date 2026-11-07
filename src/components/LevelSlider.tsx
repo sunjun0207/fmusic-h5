@@ -115,12 +115,20 @@ function LevelSlider({
   )
 }
 
-export function PlaybackLevels({ scope, tone = 'light' }: { scope: LevelScope; tone?: 'light' | 'dark' }) {
+export function PlaybackLevels({
+  scope,
+  tone = 'light',
+  only,
+}: {
+  scope: LevelScope
+  tone?: 'light' | 'dark'
+  only?: 'volume' | 'brightness'
+}) {
   const { volume, brightness, setVolume, setBrightness } = usePlaybackLevels(scope)
   return (
     <div className={`level-row${tone === 'dark' ? ' is-dark' : ''}`}>
-      <LevelSlider label="音量" value={volume} icon={<VolumeIcon value={volume} />} onChange={setVolume} />
-      <LevelSlider label="亮度" value={brightness} icon={<BrightnessIcon />} onChange={setBrightness} />
+      {only !== 'brightness' ? <LevelSlider label="音量" value={volume} icon={<VolumeIcon value={volume} />} onChange={setVolume} /> : null}
+      {only !== 'volume' ? <LevelSlider label="亮度" value={brightness} icon={<BrightnessIcon />} onChange={setBrightness} /> : null}
     </div>
   )
 }

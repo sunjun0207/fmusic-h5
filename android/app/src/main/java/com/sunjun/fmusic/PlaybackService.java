@@ -29,6 +29,8 @@ import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import android.widget.RemoteViews;
 import androidx.core.app.NotificationCompat;
 import androidx.media.app.NotificationCompat.DecoratedMediaCustomViewStyle;
@@ -116,6 +118,12 @@ public class PlaybackService extends Service {
     private boolean playingAudio;
     private boolean closing;
     private boolean allowResume;
+    private boolean userPaused;
+    private boolean holdingVideo;
+    private boolean inResume;
+    private int focusSaves;
+    private long focusSaveAt;
+    private long ignorePauseUntil;
     private boolean favored;
     private boolean lyricOn;
     private boolean lyricLoaded;
@@ -213,6 +221,7 @@ public class PlaybackService extends Service {
 
             @Override
             public void onPause() {
+                if (playingAudio && SystemClock.elapsedRealtime() < ignorePauseUntil) return;
                 if (acceptControl("toggle")) pause();
             }
 
@@ -322,6 +331,8 @@ public class PlaybackService extends Service {
     }
 
     void play(String url) {
+        holdingVideo = false;
+        if (session != null) session.setActive(true);
         if (!allowed(url)) {
             emit("error", 0, 0, "播放地址无效");
             return;
@@ -334,7 +345,9 @@ public class PlaybackService extends Service {
         nextTrack = null;
         prevTrack = null;
         completed = false;
+        userPaused = false;
         allowResume = true;
+        if (session != null) session.setActive(true);
         currentUrl = url;
         open(url);
     }
@@ -360,13 +373,17 @@ public class PlaybackService extends Service {
         pendingLyrics = null;
         if ((payload == null || payload.trim().isEmpty()) && !lyricLines.isEmpty()) {
             lyricLoaded = true;
-            if (lyricOn) lyricIndex = lyricIndexAt(position());
-            if (foreground || player != null) showForeground();
+            if (lyricOn) {
+                lyricIndex = lyricIndexAt(position());
+                if (foreground || player != null) showForeground();
+            }
             return;
         }
         applyLyrics(payload);
-        if (lyricOn) lyricIndex = lyricIndexAt(position());
-        if (foreground || player != null) showForeground();
+        if (lyricOn) {
+            lyricIndex = lyricIndexAt(position());
+            if (foreground || player != null) showForeground();
+        }
     }
 
     private void dropLyrics(boolean clearSong) {
@@ -394,8 +411,10 @@ public class PlaybackService extends Service {
                 } else {
                     applyLyrics(payload == null ? "" : payload);
                 }
-                if (lyricOn) lyricIndex = lyricIndexAt(position());
-                if (foreground || player != null) showForeground();
+                if (lyricOn) {
+                    lyricIndex = lyricIndexAt(position());
+                    if (foreground || player != null) showForeground();
+                }
             });
         }, "fmusic-lyric").start();
     }
@@ -503,8 +522,31 @@ public class PlaybackService extends Service {
     }
 
     void pause() {
-        if (player == null) return;
+        userPaused = true;
         allowResume = false;
+        handler.removeCallbacks(recoverFocus);
+        pausePlayer();
+    }
+
+    void yieldForVideo() {
+        holdingVideo = true;
+        userPaused = true;
+        allowResume = false;
+        handler.removeCallbacks(recoverFocus);
+        handler.removeCallbacks(tick);
+        playingAudio = false;
+        if (safePlaying()) {
+            try {
+                player.pause();
+            } catch (IllegalStateException ignored) {}
+        }
+        abandonFocus();
+        if (session != null) session.setActive(false);
+        hideForeground();
+    }
+
+    private void pausePlayer() {
+        if (player == null && !playingAudio) return;
         handler.removeCallbacks(tick);
         playingAudio = false;
         if (safePlaying()) {
@@ -536,11 +578,14 @@ public class PlaybackService extends Service {
     void stopPlayback() {
         boolean active = player != null || foreground || !currentUrl.isEmpty();
         handler.removeCallbacks(tick);
+        handler.removeCallbacks(recoverFocus);
         currentUrl = "";
         nextTrack = null;
         prevTrack = null;
         completed = false;
         playingAudio = false;
+        userPaused = false;
+        allowResume = false;
         releasePlayer();
         abandonFocus();
         hideForeground();
@@ -641,18 +686,25 @@ public class PlaybackService extends Service {
     }
 
     private void resume() {
-        if (player == null || completed || !prepared) return;
-        allowResume = true;
-        requestFocus();
+        if (holdingVideo || player == null || completed || !prepared || inResume) return;
+        inResume = true;
         try {
-            player.start();
-        } catch (IllegalStateException error) {
-            return;
+            userPaused = false;
+            allowResume = true;
+            if (session != null) session.setActive(true);
+            requestFocus();
+            try {
+                player.start();
+            } catch (IllegalStateException error) {
+                return;
+            }
+            playingAudio = true;
+            emit("playing", position(), duration(), "");
+            watch();
+            showForeground();
+        } finally {
+            inResume = false;
         }
-        playingAudio = true;
-        emit("playing", position(), duration(), "");
-        watch();
-        showForeground();
     }
 
     private void skip(boolean toNext) {
@@ -675,7 +727,10 @@ public class PlaybackService extends Service {
             loadCover(track.cover);
         }
         completed = false;
+        holdingVideo = false;
+        userPaused = false;
         allowResume = true;
+        if (session != null) session.setActive(true);
         currentUrl = track.url;
         open(track.url);
         emit("advanced", 0, 0, track.url);
@@ -731,7 +786,10 @@ public class PlaybackService extends Service {
             return true;
         });
         try {
-            next.setDataSource(url);
+            Map<String, String> headers = new HashMap<>();
+            headers.put("User-Agent", "Mozilla/5.0");
+            headers.put("Referer", "https://www.kuwo.cn/");
+            next.setDataSource(this, Uri.parse(url), headers);
             next.prepareAsync();
         } catch (Exception error) {
             playingAudio = false;
@@ -800,8 +858,8 @@ public class PlaybackService extends Service {
         } catch (Exception ignored) {}
     }
 
-    private void requestFocus() {
-        if (audioManager == null) return;
+    private int requestFocus() {
+        if (audioManager == null) return AudioManager.AUDIOFOCUS_REQUEST_FAILED;
         if (Build.VERSION.SDK_INT >= 26) {
             if (focusRequest == null) {
                 focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -812,12 +870,12 @@ public class PlaybackService extends Service {
                             .build()
                     )
                     .setOnAudioFocusChangeListener(focusListener)
+                    .setWillPauseWhenDucked(false)
                     .build();
             }
-            audioManager.requestAudioFocus(focusRequest);
-            return;
+            return audioManager.requestAudioFocus(focusRequest);
         }
-        audioManager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+        return audioManager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
     }
 
     private void abandonFocus() {
@@ -826,29 +884,38 @@ public class PlaybackService extends Service {
         else audioManager.abandonAudioFocus(focusListener);
     }
 
+    private final Runnable recoverFocus = () -> {
+        if (holdingVideo || userPaused || player == null || completed || safePlaying()) return;
+        long now = SystemClock.elapsedRealtime();
+        if (now - focusSaveAt > 8000) focusSaves = 0;
+        if (focusSaves >= 2) return;
+        focusSaves += 1;
+        focusSaveAt = now;
+        if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) resume();
+    };
+
     private void onFocus(int change) {
-        if (change == AudioManager.AUDIOFOCUS_LOSS) {
-            pause();
-            return;
-        }
-        if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-            if (player != null && safePlaying()) {
-                try {
-                    player.pause();
-                } catch (IllegalStateException ignored) {}
-            }
-            playingAudio = false;
+        if (holdingVideo) return;
+        if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) return;
+        if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+            if (userPaused || player == null) return;
+            if (!safePlaying() && !playingAudio) return;
             allowResume = true;
-            emit("paused", position(), duration(), "");
-            showForeground();
+            pausePlayer();
+            if (change == AudioManager.AUDIOFOCUS_LOSS) {
+                handler.removeCallbacks(recoverFocus);
+                handler.postDelayed(recoverFocus, 350);
+            }
             return;
         }
-        if (change == AudioManager.AUDIOFOCUS_GAIN && allowResume && player != null && !completed && !safePlaying()) {
+        if (change == AudioManager.AUDIOFOCUS_GAIN && !userPaused && allowResume && player != null && !completed && !safePlaying()) {
             resume();
         }
     }
 
     private void showForeground() {
+        if (holdingVideo) return;
+        ignorePauseUntil = SystemClock.elapsedRealtime() + 600;
         publishSession();
         int playIcon = playingAudio ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play;
         String playLabel = playingAudio ? "暂停" : "播放";

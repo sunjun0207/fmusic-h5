@@ -10,6 +10,7 @@ type NativeAudio = {
   seek: (seconds: number) => void
   volume: (level: number) => void
   stop: () => void
+  yield?: () => void
 }
 
 export type NativeTrackInfo = {
@@ -64,6 +65,10 @@ export function noteNativeTrack(title: string, artist: string, cover = '', favor
 
 export function noteNativeFavorite(favored: boolean) {
   bridge()?.setFavorited?.(favored)
+}
+
+export function yieldNativeAudio() {
+  bridge()?.yield?.()
 }
 
 export function noteNativeSong(id: string) {

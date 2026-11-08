@@ -63,6 +63,16 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onPause() {
         super.onPause();
+        keepWebViewRunning();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        keepWebViewRunning();
+    }
+
+    private void keepWebViewRunning() {
         if (getBridge() == null || getBridge().getWebView() == null) return;
         WebView webView = getBridge().getWebView();
         webView.onResume();

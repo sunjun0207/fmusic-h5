@@ -104,9 +104,14 @@ public class PlaybackService extends Service {
     private MediaSessionCompat session;
     private AudioManager audioManager;
     private AudioFocusRequest focusRequest;
-    private String currentUrl = "";
+    private volatile String currentUrl = "";
     private Track nextTrack;
     private Track prevTrack;
+    private final ArrayList<Track> cycle = new ArrayList<>();
+    private int cycleIndex;
+    private boolean cycleLoop;
+    private boolean repeatOne;
+    private int errorSkips;
     private String title = "碎冰音乐";
     private String artist = "正在播放";
     private String coverUrl = "";
@@ -344,6 +349,10 @@ public class PlaybackService extends Service {
         }
         nextTrack = null;
         prevTrack = null;
+        cycle.clear();
+        cycleIndex = 0;
+        cycleLoop = false;
+        errorSkips = 0;
         completed = false;
         userPaused = false;
         allowResume = true;
@@ -582,6 +591,11 @@ public class PlaybackService extends Service {
         currentUrl = "";
         nextTrack = null;
         prevTrack = null;
+        cycle.clear();
+        cycleIndex = 0;
+        cycleLoop = false;
+        repeatOne = false;
+        errorSkips = 0;
         completed = false;
         playingAudio = false;
         userPaused = false;
@@ -707,17 +721,121 @@ public class PlaybackService extends Service {
         }
     }
 
+    String playingUrl() {
+        return currentUrl == null ? "" : currentUrl;
+    }
+
+    void setRepeatOne(boolean on) {
+        repeatOne = on;
+    }
+
+    void setUpcoming(String json, boolean loop) {
+        ArrayList<Track> next = new ArrayList<>();
+        if (json != null && !json.isEmpty()) {
+            try {
+                JSONArray list = new JSONArray(json);
+                for (int i = 0; i < list.length(); i++) {
+                    JSONObject row = list.optJSONObject(i);
+                    if (row == null) continue;
+                    Track track = trackOf(row.optString("url", ""), row.optString("title", ""), row.optString("artist", ""), row.optString("cover", ""));
+                    if (track == null) continue;
+                    if (!next.isEmpty() && track.url.equals(next.get(next.size() - 1).url)) continue;
+                    next.add(track);
+                }
+            } catch (Exception ignored) {}
+        }
+        int index = 0;
+        boolean found = false;
+        for (int i = 0; i < next.size(); i++) {
+            if (!currentUrl.isEmpty() && currentUrl.equals(next.get(i).url)) {
+                found = true;
+                index = i + 1;
+                break;
+            }
+        }
+        if (found && index >= next.size()) index = loop ? 0 : next.size();
+        cycle.clear();
+        cycle.addAll(next);
+        cycleLoop = loop && !cycle.isEmpty();
+        cycleIndex = index;
+        nextTrack = peekUpcoming();
+    }
+
+    private Track peekUpcoming() {
+        if (cycle.isEmpty()) return null;
+        int index = cycleIndex;
+        if (index >= cycle.size()) {
+            if (!cycleLoop) return null;
+            index = 0;
+        }
+        return cycle.get(index);
+    }
+
+    private Track takeUpcoming() {
+        Track track = peekUpcoming();
+        if (track == null) return null;
+        cycleIndex += 1;
+        if (cycleIndex >= cycle.size() && cycleLoop) cycleIndex = 0;
+        nextTrack = peekUpcoming();
+        return track;
+    }
+
+    private void replayCurrent() {
+        if (player == null || currentUrl.isEmpty()) {
+            emit("ended", position(), duration(), "");
+            return;
+        }
+        try {
+            player.seekTo(0);
+            player.start();
+        } catch (IllegalStateException error) {
+            open(currentUrl);
+            return;
+        }
+        completed = false;
+        playingAudio = true;
+        emit("playing", 0, duration(), "");
+        watch();
+        showForeground();
+    }
+
+    private void playUpcoming() {
+        if (repeatOne) {
+            replayCurrent();
+            return;
+        }
+        Track track = takeUpcoming();
+        if (track == null || !allowed(track.url)) {
+            emit("ended", position(), duration(), "");
+            showForeground();
+            return;
+        }
+        startQueued(track);
+    }
+
     private void skip(boolean toNext) {
-        Track track = toNext ? nextTrack : prevTrack;
+        if (toNext) {
+            if (repeatOne) {
+                replayCurrent();
+                return;
+            }
+            Track track = takeUpcoming();
+            if (track == null || !allowed(track.url)) {
+                emit("command", 0, 0, "next");
+                return;
+            }
+            startQueued(track);
+            return;
+        }
+        Track track = prevTrack;
         if (track == null || !allowed(track.url) || track.url.equals(currentUrl)) {
-            emit("command", 0, 0, toNext ? "next" : "prev");
+            emit("command", 0, 0, "prev");
             return;
         }
         startQueued(track);
     }
 
     private void startQueued(Track track) {
-        nextTrack = null;
         prevTrack = null;
         dropLyrics(true);
         if (track.title != null && !track.title.isEmpty()) title = track.title;
@@ -753,6 +871,7 @@ public class PlaybackService extends Service {
         next.setOnPreparedListener(ready -> {
             if (player != next) return;
             prepared = true;
+            errorSkips = 0;
             ready.start();
             completed = false;
             playingAudio = true;
@@ -765,9 +884,8 @@ public class PlaybackService extends Service {
             completed = true;
             playingAudio = false;
             handler.removeCallbacks(tick);
-            Track queued = nextTrack;
-            if (queued != null && allowed(queued.url)) {
-                startQueued(queued);
+            if (repeatOne || peekUpcoming() != null) {
+                playUpcoming();
                 return;
             }
             emit("ended", position(), duration(), "");
@@ -777,6 +895,12 @@ public class PlaybackService extends Service {
             if (player != next) return true;
             // 切歌重新申请音频焦点时，未准备好的播放器会被误启动，系统回报 -38，随后仍会正常开播。
             if (!prepared && (what == -38 || extra == -38)) return true;
+            if (!repeatOne && peekUpcoming() != null && errorSkips < 3) {
+                errorSkips += 1;
+                playUpcoming();
+                return true;
+            }
+            errorSkips = 0;
             completed = true;
             prepared = false;
             playingAudio = false;

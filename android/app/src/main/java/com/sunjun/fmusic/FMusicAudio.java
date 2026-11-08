@@ -82,6 +82,28 @@ public class FMusicAudio {
     }
 
     @JavascriptInterface
+    public void setUpcoming(String json, boolean loop) {
+        activity.runOnUiThread(() -> {
+            PlaybackService service = PlaybackService.get();
+            if (service != null) service.setUpcoming(json, loop);
+        });
+    }
+
+    @JavascriptInterface
+    public void setRepeatOne(boolean on) {
+        activity.runOnUiThread(() -> {
+            PlaybackService service = PlaybackService.get();
+            if (service != null) service.setRepeatOne(on);
+        });
+    }
+
+    @JavascriptInterface
+    public String playingUrl() {
+        PlaybackService service = PlaybackService.get();
+        return service == null ? "" : service.playingUrl();
+    }
+
+    @JavascriptInterface
     public void yield() {
         activity.runOnUiThread(() -> {
             PlaybackService service = PlaybackService.get();

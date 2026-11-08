@@ -82,3 +82,33 @@ export function resolveAdvance<T extends TrackRef>(args: {
   const item = pool[wrapIndex(pool.length, base, delta)] ?? null
   return { item, history, replay: item?.id === currentId }
 }
+
+/** 后台切歌用的后续曲目。列表循环排满一轮；随机播放先排一段，页面还在时会继续补。 */
+export function planUpcoming<T extends TrackRef>(args: {
+  list: T[]
+  currentId: string
+  mode: PlayMode
+  history: string[]
+  limit: number
+}): { steps: { item: T; history: string[] }[]; loop: boolean } {
+  const { list, currentId, mode } = args
+  if (mode === 'single' || list.length <= 1) return { steps: [], loop: true }
+  const steps: { item: T; history: string[] }[] = []
+  let cursor = currentId
+  let history = args.history.slice()
+  const seen = new Set<string>()
+  const max = Math.max(1, Math.min(args.limit, mode === 'list' ? list.length : args.limit))
+  for (let i = 0; i < max; i += 1) {
+    const result = resolveAdvance({ list, currentId: cursor, mode, direction: 'ended', history })
+    history = result.history
+    if (result.replay || !result.item) break
+    if (mode === 'list' && seen.has(result.item.id)) break
+    seen.add(result.item.id)
+    steps.push({ item: result.item, history: history.slice() })
+    cursor = result.item.id
+  }
+  const loop = mode === 'shuffle'
+    ? steps.length > 0
+    : steps.length > 0 && (steps[steps.length - 1]?.item.id === currentId || seen.size >= list.length)
+  return { steps, loop }
+}

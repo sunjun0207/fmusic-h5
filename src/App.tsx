@@ -28,8 +28,8 @@ import { coverUrl, getAvailableMvQualities, getLyric, getMvUrl, getPlayMeta, get
 import { AppContext, type AppActions, type SongMenuExtra } from './lib/appContext'
 import { friendlyError, PICKS, TEXT } from './lib/brand'
 import { applyMediaLevel, getLevels, LEVELS_EVENT } from './lib/levels'
-import { createSongPlayer, hasNativeAudio, noteNativeFavorite, noteNativeLyrics, noteNativeSong, noteNativeTrack, prepareNativeNext, prepareNativePrev, yieldNativeAudio, type NativeTrackInfo } from './lib/nativeAudio'
-import { nextPlayMode, resolveAdvance } from './lib/playback'
+import { createSongPlayer, currentNativeUrl, hasNativeAudio, noteNativeFavorite, noteNativeLyrics, noteNativeSong, noteNativeTrack, prepareNativeNext, prepareNativePrev, prepareRepeatOne, prepareUpcoming, yieldNativeAudio, type NativeTrackInfo } from './lib/nativeAudio'
+import { nextPlayMode, planUpcoming, resolveAdvance } from './lib/playback'
 import { bestMvQuality } from './lib/quality'
 import { clearSharedLink, readSharedLink, shareTarget, type ShareTarget } from './lib/share'
 import {
@@ -134,7 +134,7 @@ function rememberNativeTrack(tracks: Map<string, PrimedTrack>, track: PrimedTrac
   if (!track?.url) return
   tracks.delete(track.url)
   tracks.set(track.url, track)
-  while (tracks.size > 8) {
+  while (tracks.size > 48) {
     const first = tracks.keys().next().value
     if (!first) break
     tracks.delete(first)
@@ -376,27 +376,65 @@ export default function App() {
     if (!cur || !src) {
       primedNextRef.current = null
       primedPrevRef.current = null
+      prepareRepeatOne(false)
+      prepareUpcoming([], false)
       prepareNativeNext(null)
       prepareNativePrev(null)
       return
     }
     const mode = playModeRef.current
     const list = queueRef.current
-    const history = playHistoryRef.current
-    const next = resolveAdvance({ list, currentId: cur.id, mode, direction: 'ended', history })
-    const prev = resolveAdvance({ list, currentId: cur.id, mode, direction: 'prev', history })
+    const history = playHistoryRef.current.slice()
     const fresh = () => token === primeGenRef.current && currentRef.current?.id === cur.id && playModeRef.current === mode
-    try {
-      const nextTrack = await resolveNativeTrack(cur, src, next)
-      if (!fresh()) return
-      primedNextRef.current = nextTrack
-      rememberNativeTrack(nativeTracksRef.current, nextTrack)
-      prepareNativeNext(nextTrack ? nativeInfo(nextTrack) : null)
-    } catch {
-      if (!fresh()) return
+    const repeatOne = mode === 'single' || list.length <= 1
+    prepareRepeatOne(repeatOne)
+    const planned = planUpcoming({
+      list,
+      currentId: cur.id,
+      mode,
+      history,
+      limit: mode === 'list' ? list.length : 24,
+    })
+    const steps = planned.steps.slice(0, 36)
+    if (repeatOne || steps.length === 0) {
       primedNextRef.current = null
+      prepareUpcoming([], false)
       prepareNativeNext(null)
+    } else {
+      const slots: ({ pending: true } | { pending: false; track: PrimedTrack | null })[] = steps.map(() => ({ pending: true }))
+      const publish = () => {
+        if (!fresh()) return
+        const tracks: PrimedTrack[] = []
+        for (const slot of slots) {
+          if (slot.pending) break
+          if (slot.track) tracks.push(slot.track)
+        }
+        const settled = slots.every((slot) => !slot.pending)
+        tracks.forEach((track) => rememberNativeTrack(nativeTracksRef.current, track))
+        primedNextRef.current = tracks[0] ?? null
+        const loop = settled && planned.loop && steps.length === planned.steps.length && tracks.length === steps.length
+        prepareUpcoming(tracks.map(nativeInfo), loop)
+      }
+      let cursor = 0
+      const workers = Array.from({ length: Math.min(4, steps.length) }, async () => {
+        while (cursor < steps.length) {
+          const index = cursor
+          cursor += 1
+          const step = steps[index]
+          let track: PrimedTrack | null = null
+          try {
+            track = await resolveNativeTrack(cur, src, { item: step.item, history: step.history, replay: false })
+          } catch {
+            track = null
+          }
+          if (!fresh()) return
+          slots[index] = { pending: false, track }
+          publish()
+        }
+      })
+      await Promise.all(workers)
     }
+    const prev = resolveAdvance({ list, currentId: cur.id, mode, direction: 'prev', history })
     try {
       const prevTrack = await resolveNativeTrack(cur, src, prev)
       if (!fresh()) return
@@ -787,6 +825,31 @@ export default function App() {
     }
     window.addEventListener('fmusic-native-advanced', onAdvanced)
     return () => window.removeEventListener('fmusic-native-advanced', onAdvanced)
+  }, [primeNativeQueue])
+
+  useEffect(() => {
+    const syncVisible = () => {
+      if (document.visibilityState !== 'visible' || mvActiveRef.current || !hasNativeAudio()) return
+      const url = currentNativeUrl()
+      const primed = url ? nativeTracksRef.current.get(url) : undefined
+      if (!primed || currentRef.current?.id === primed.item.id) return
+      playHistoryRef.current = primed.history
+      currentRef.current = primed.item
+      loadedIdRef.current = primed.item.id
+      heardTimeRef.current = 0
+      skipEndRef.current = false
+      finishedSrcRef.current = ''
+      setCurrent(primed.item)
+      addRecentPlay(primed.item)
+      setLibraryVersion((version) => version + 1)
+      setDetail((song) => (song ? primed.item : song))
+      noteNativeSong(primed.item.id)
+      noteNativeTrack(primed.item.title, primed.item.artist, coverUrl(primed.item.image, 300), isFavorite(primed.item.id))
+      setPlaying(true)
+      void primeNativeQueue()
+    }
+    document.addEventListener('visibilitychange', syncVisible)
+    return () => document.removeEventListener('visibilitychange', syncVisible)
   }, [primeNativeQueue])
 
   useEffect(() => {

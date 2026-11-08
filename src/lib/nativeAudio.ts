@@ -11,6 +11,9 @@ type NativeAudio = {
   volume: (level: number) => void
   stop: () => void
   yield?: () => void
+  setUpcoming?: (json: string, loop: boolean) => void
+  setRepeatOne?: (on: boolean) => void
+  playingUrl?: () => string
 }
 
 export type NativeTrackInfo = {
@@ -54,6 +57,18 @@ export function prepareNativeNext(info: NativeTrackInfo | null) {
 
 export function prepareNativePrev(info: NativeTrackInfo | null) {
   sendTrack('prev', info)
+}
+
+export function prepareUpcoming(tracks: NativeTrackInfo[], loop: boolean) {
+  bridge()?.setUpcoming?.(JSON.stringify(tracks), loop)
+}
+
+export function prepareRepeatOne(on: boolean) {
+  bridge()?.setRepeatOne?.(on)
+}
+
+export function currentNativeUrl() {
+  return bridge()?.playingUrl?.() || ''
 }
 
 export function noteNativeTrack(title: string, artist: string, cover = '', favored = false) {

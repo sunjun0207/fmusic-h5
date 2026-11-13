@@ -414,19 +414,6 @@ export default function App() {
       prepareNativeNext(null)
     } else {
       const slots: ({ pending: true } | { pending: false; track: PrimedTrack | null })[] = steps.map(() => ({ pending: true }))
-      const publish = () => {
-        if (!fresh()) return
-        const tracks: PrimedTrack[] = []
-        for (const slot of slots) {
-          if (slot.pending) break
-          if (slot.track) tracks.push(slot.track)
-        }
-        const settled = slots.every((slot) => !slot.pending)
-        tracks.forEach((track) => rememberNativeTrack(nativeTracksRef.current, track))
-        primedNextRef.current = tracks[0] ?? null
-        const loop = settled && planned.loop && steps.length === planned.steps.length && tracks.length === steps.length
-        prepareUpcoming(tracks.map(nativeInfo), loop)
-      }
       let cursor = 0
       const workers = Array.from({ length: Math.min(4, steps.length) }, async () => {
         while (cursor < steps.length) {
@@ -441,10 +428,21 @@ export default function App() {
           }
           if (!fresh()) return
           slots[index] = { pending: false, track }
-          publish()
         }
       })
       await Promise.all(workers)
+      if (fresh()) {
+        const tracks: PrimedTrack[] = []
+        for (const slot of slots) {
+          if (slot.pending) break
+          if (slot.track) tracks.push(slot.track)
+        }
+        if (tracks.length > 0) {
+          tracks.forEach((track) => rememberNativeTrack(nativeTracksRef.current, track))
+          primedNextRef.current = tracks[0] ?? null
+          prepareUpcoming(tracks.map(nativeInfo), true)
+        }
+      }
     }
     const prev = resolveAdvance({ list, currentId: cur.id, mode, direction: 'prev', history })
     try {
@@ -985,7 +983,9 @@ export default function App() {
       const command = event instanceof CustomEvent ? String(event.detail || '') : ''
       if (command === 'next') playRelative(1)
       else if (command === 'prev') playRelative(-1)
-      else if (command.startsWith('refresh:')) {
+      else if (command === 'reprime') {
+        if (!mvActiveRef.current) void primeNativeQueue()
+      } else if (command.startsWith('refresh:')) {
         const url = command.slice('refresh:'.length)
         const primed = url ? nativeTracksRef.current.get(url) : undefined
         const song = primed?.item || currentRef.current
@@ -1021,7 +1021,7 @@ export default function App() {
     }
     window.addEventListener('fmusic-native-command', onCommand)
     return () => window.removeEventListener('fmusic-native-command', onCommand)
-  }, [playRelative, togglePlay, stopPlayback, bumpLibrary, notify, ensurePlay])
+  }, [playRelative, togglePlay, stopPlayback, bumpLibrary, notify, ensurePlay, primeNativeQueue])
 
   useEffect(() => {
     if (!hasNativeAudio()) return

@@ -225,33 +225,33 @@ export function apiFetch(input: string, init: RequestInit = {}): Promise<Respons
     headerMap[key] = value
   })
   const body = typeof init.body === 'string' ? init.body : ''
-  const pending = (window as Window & { __fmusicPending?: Map<string, PendingNet> }).__fmusicPending
-  return new Promise((resolve, reject) => {
-    if (init.signal?.aborted) {
-      reject(new DOMException('The operation was aborted.', 'AbortError'))
-      return
-    }
-    const onAbort = () => {
-      pending?.delete(id)
-      reject(new DOMException('The operation was aborted.', 'AbortError'))
-    }
-    init.signal?.addEventListener('abort', onAbort, { once: true })
-    pending?.set(id, {
-      resolve: (response) => {
+    const pending = (window as Window & { __fmusicPending?: Map<string, PendingNet> }).__fmusicPending
+    return new Promise((resolve, reject) => {
+      if (init.signal?.aborted) {
+        reject(new DOMException('The operation was aborted.', 'AbortError'))
+        return
+      }
+      let settled = false
+      const timer = window.setTimeout(() => finish(new Error('接口超时')), 40000)
+      const finish = (error?: Error, response?: Response) => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(timer)
+        pending?.delete(id)
         init.signal?.removeEventListener('abort', onAbort)
-        resolve(response)
-      },
-      reject: (error) => {
-        init.signal?.removeEventListener('abort', onAbort)
-        reject(error)
-      },
-    })
+        if (error) reject(error)
+        else if (response) resolve(response)
+      }
+      const onAbort = () => finish(new DOMException('The operation was aborted.', 'AbortError'))
+      init.signal?.addEventListener('abort', onAbort, { once: true })
+      pending?.set(id, {
+        resolve: (response) => finish(undefined, response),
+        reject: (error) => finish(error),
+      })
     try {
       bridge.request(id, absoluteApiUrl(input), method, JSON.stringify(headerMap), body)
     } catch (error) {
-      pending?.delete(id)
-      init.signal?.removeEventListener('abort', onAbort)
-      reject(error instanceof Error ? error : new Error('接口调用失败'))
+      finish(error instanceof Error ? error : new Error('接口调用失败'))
     }
   })
 }

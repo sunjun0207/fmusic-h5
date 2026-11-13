@@ -116,6 +116,10 @@ public class PlaybackService extends Service {
     private boolean cycleLoop;
     private boolean repeatOne;
     private int errorSkips;
+    private int handoffs;
+    private long handoffAt;
+    private long reprimeAt;
+    private long ignoreFocusLossUntil;
     private long currentFetchedAt;
     private String title = "碎冰音乐";
     private String artist = "正在播放";
@@ -362,6 +366,7 @@ public class PlaybackService extends Service {
         cycleIndex = 0;
         cycleLoop = false;
         errorSkips = 0;
+        handoffs = 0;
         completed = false;
         userPaused = false;
         allowResume = true;
@@ -785,6 +790,11 @@ public class PlaybackService extends Service {
         return System.currentTimeMillis() - track.fetchedAt < URL_TTL;
     }
 
+    private boolean aging(Track track) {
+        if (track == null || track.fetchedAt <= 0) return false;
+        return System.currentTimeMillis() - track.fetchedAt >= 8L * 60L * 1000L;
+    }
+
     private boolean currentUrlFresh() {
         return currentFetchedAt <= 0 || System.currentTimeMillis() - currentFetchedAt < URL_TTL;
     }
@@ -823,11 +833,11 @@ public class PlaybackService extends Service {
             showForeground();
             return;
         }
-        if (!currentUrlFresh()) {
-            askRefresh();
-            return;
-        }
         if (player == null) {
+            if (!currentUrlFresh()) {
+                askRefresh();
+                return;
+            }
             open(currentUrl);
             return;
         }
@@ -835,9 +845,14 @@ public class PlaybackService extends Service {
             player.seekTo(0);
             player.start();
         } catch (IllegalStateException error) {
+            if (!currentUrlFresh()) {
+                askRefresh();
+                return;
+            }
             open(currentUrl);
             return;
         }
+        if (!currentUrlFresh()) emit("command", 0, 0, "reprime");
         completed = false;
         playingAudio = true;
         emit("playing", 0, duration(), "");
@@ -845,28 +860,48 @@ public class PlaybackService extends Service {
         showForeground();
     }
 
-    private void playUpcoming() {
+    private boolean playUpcoming() {
         if (repeatOne) {
             replayCurrent();
-            return;
+            return true;
         }
         Track track = peekUpcoming();
-        if (track == null || !fresh(track)) {
-            cycle.clear();
-            cycleIndex = 0;
-            cycleLoop = false;
-            nextTrack = null;
-            emit("ended", position(), duration(), "");
-            showForeground();
-            return;
-        }
+        if (track == null || !allowed(track.url)) return false;
         takeUpcoming();
-        if (!allowed(track.url)) {
-            emit("ended", position(), duration(), "");
-            showForeground();
-            return;
-        }
         startQueued(track);
+        return true;
+    }
+
+    private boolean handoffNext() {
+        if (repeatOne || holdingVideo) return false;
+        long now = SystemClock.elapsedRealtime();
+        if (now - handoffAt > 30000) handoffs = 0;
+        if (handoffs >= 2) return false;
+        handoffs += 1;
+        handoffAt = now;
+        completed = true;
+        prepared = false;
+        playingAudio = false;
+        handler.removeCallbacks(tick);
+        emit("paused", position(), duration(), "");
+        emit("command", 0, 0, "next");
+        showForeground();
+        return true;
+    }
+
+    private void maybeReprime() {
+        Track next = peekUpcoming();
+        if (!aging(next) && currentUrlFresh()) return;
+        long now = SystemClock.elapsedRealtime();
+        if (now - reprimeAt < 90000) return;
+        reprimeAt = now;
+        emit("command", 0, 0, "reprime");
+    }
+
+    private void armTransition() {
+        long until = SystemClock.elapsedRealtime() + 1600;
+        ignorePauseUntil = until;
+        ignoreFocusLossUntil = until;
     }
 
     private void skip(boolean toNext) {
@@ -930,10 +965,12 @@ public class PlaybackService extends Service {
                 .build()
         );
         next.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK);
+        armTransition();
         next.setOnPreparedListener(ready -> {
             if (player != next) return;
             prepared = true;
             errorSkips = 0;
+            handoffs = 0;
             ready.start();
             completed = false;
             playingAudio = true;
@@ -946,10 +983,8 @@ public class PlaybackService extends Service {
             completed = true;
             playingAudio = false;
             handler.removeCallbacks(tick);
-            if (repeatOne || peekUpcoming() != null) {
-                playUpcoming();
-                return;
-            }
+            if (playUpcoming()) return;
+            if (handoffNext()) return;
             emit("ended", position(), duration(), "");
             showForeground();
         });
@@ -957,25 +992,16 @@ public class PlaybackService extends Service {
             if (player != next) return true;
             // 切歌重新申请音频焦点时，未准备好的播放器会被误启动，系统回报 -38，随后仍会正常开播。
             if (!prepared && (what == -38 || extra == -38)) return true;
-            if (!currentUrlFresh() && errorSkips < 1) {
+            if (repeatOne) {
+                if (errorSkips < 1) {
+                    errorSkips += 1;
+                    askRefresh();
+                    return true;
+                }
+            } else if (errorSkips < 2 && playUpcoming()) {
                 errorSkips += 1;
-                askRefresh();
                 return true;
-            }
-            Track upcoming = peekUpcoming();
-            if (!repeatOne && upcoming != null && fresh(upcoming) && errorSkips < 3) {
-                errorSkips += 1;
-                playUpcoming();
-                return true;
-            }
-            if (!repeatOne && upcoming != null && !fresh(upcoming) && errorSkips < 1) {
-                errorSkips += 1;
-                cycle.clear();
-                cycleIndex = 0;
-                cycleLoop = false;
-                nextTrack = null;
-                emit("command", 0, 0, "next");
-                showForeground();
+            } else if (handoffNext()) {
                 return true;
             }
             errorSkips = 0;
@@ -1005,6 +1031,7 @@ public class PlaybackService extends Service {
         public void run() {
             if (player == null || completed || !safePlaying()) return;
             emit("time", position(), duration(), "");
+            maybeReprime();
             if (lyricOn) {
                 int next = lyricIndexAt(position());
                 if (next != lyricIndex) {
@@ -1086,28 +1113,31 @@ public class PlaybackService extends Service {
         else audioManager.abandonAudioFocus(focusListener);
     }
 
-    private final Runnable recoverFocus = () -> {
-        if (holdingVideo || userPaused || player == null || completed || safePlaying()) return;
-        long now = SystemClock.elapsedRealtime();
-        if (now - focusSaveAt > 8000) focusSaves = 0;
-        if (focusSaves >= 2) return;
-        focusSaves += 1;
-        focusSaveAt = now;
-        if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) resume();
+    private final Runnable recoverFocus = new Runnable() {
+        @Override
+        public void run() {
+            if (holdingVideo || userPaused || player == null || completed || safePlaying()) return;
+            long now = SystemClock.elapsedRealtime();
+            if (now - focusSaveAt > 12000) focusSaves = 0;
+            if (focusSaves >= 5) return;
+            focusSaves += 1;
+            focusSaveAt = now;
+            if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) resume();
+            else handler.postDelayed(this, 1200);
+        }
     };
 
     private void onFocus(int change) {
         if (holdingVideo) return;
         if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) return;
         if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+            if (SystemClock.elapsedRealtime() < ignoreFocusLossUntil) return;
             if (userPaused || player == null) return;
             if (!safePlaying() && !playingAudio) return;
             allowResume = true;
             pausePlayer();
-            if (change == AudioManager.AUDIOFOCUS_LOSS) {
-                handler.removeCallbacks(recoverFocus);
-                handler.postDelayed(recoverFocus, 350);
-            }
+            handler.removeCallbacks(recoverFocus);
+            handler.postDelayed(recoverFocus, change == AudioManager.AUDIOFOCUS_LOSS ? 350 : 700);
             return;
         }
         if (change == AudioManager.AUDIOFOCUS_GAIN && !userPaused && allowResume && player != null && !completed && !safePlaying()) {

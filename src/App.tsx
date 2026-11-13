@@ -119,7 +119,9 @@ function viewTitle(view: View): string {
 
 type HistoryMark = { depth?: number }
 
-type PrimedTrack = { item: MusicItem; url: string; history: string[] }
+type PrimedTrack = { item: MusicItem; url: string; history: string[]; fetchedAt: number }
+
+const PLAY_URL_TTL = 12 * 60 * 1000
 
 function nativeInfo(track: PrimedTrack): NativeTrackInfo {
   return {
@@ -127,6 +129,7 @@ function nativeInfo(track: PrimedTrack): NativeTrackInfo {
     title: track.item.title,
     artist: track.item.artist,
     cover: coverUrl(track.item.image, 300),
+    at: track.fetchedAt,
   }
 }
 
@@ -145,13 +148,14 @@ async function resolveNativeTrack(
   current: MusicItem,
   currentUrl: string,
   result: { item: MusicItem | null; history: string[]; replay: boolean },
+  currentFetchedAt = 0,
 ): Promise<PrimedTrack | null> {
   if (result.replay || !result.item || result.item.id === current.id) {
-    return { item: current, url: currentUrl, history: result.history }
+    return { item: current, url: currentUrl, history: result.history, fetchedAt: currentFetchedAt || Date.now() }
   }
   const meta = await getPlayMeta(result.item.id, getSettings().quality)
   if (!meta.url) return null
-  return { item: result.item, url: meta.url, history: result.history }
+  return { item: result.item, url: meta.url, history: result.history, fetchedAt: Date.now() }
 }
 
 export default function App() {
@@ -203,6 +207,8 @@ export default function App() {
   const finishedSrcRef = useRef('')
   const heardTimeRef = useRef(0)
   const loadedIdRef = useRef('')
+  const loadedAtRef = useRef(0)
+  const ensurePlayRef = useRef<(music: MusicItem, br?: string) => void>(() => {})
   const primedNextRef = useRef<PrimedTrack | null>(null)
   const primedPrevRef = useRef<PrimedTrack | null>(null)
   const nativeTracksRef = useRef(new Map<string, PrimedTrack>())
@@ -336,6 +342,12 @@ export default function App() {
       else audio.addEventListener('loadedmetadata', applyTime, { once: true })
     }
     if (resume) {
+      const song = currentRef.current
+      if (hasNativeAudio() && song && Date.now() - loadedAtRef.current >= PLAY_URL_TTL) {
+        loadedIdRef.current = ''
+        ensurePlayRef.current(song)
+        return
+      }
       const time = held?.time ?? 0
       void audio.play()
         .then(() => {
@@ -423,7 +435,7 @@ export default function App() {
           const step = steps[index]
           let track: PrimedTrack | null = null
           try {
-            track = await resolveNativeTrack(cur, src, { item: step.item, history: step.history, replay: false })
+            track = await resolveNativeTrack(cur, src, { item: step.item, history: step.history, replay: false }, loadedAtRef.current)
           } catch {
             track = null
           }
@@ -452,7 +464,11 @@ export default function App() {
     const audio = audioRef.current
     if (!audio) return
     if (mvActiveRef.current) return
-    if (loadedIdRef.current === music.id && audio.getAttribute('src')) {
+    if (
+      loadedIdRef.current === music.id &&
+      audio.getAttribute('src') &&
+      Date.now() - loadedAtRef.current < PLAY_URL_TTL
+    ) {
       playToken.current += 1
       playInFlightRef.current = false
       setCurrent(music)
@@ -493,6 +509,7 @@ export default function App() {
         audio.src = meta.url
       }
       loadedIdRef.current = music.id
+      loadedAtRef.current = Date.now()
       applyMediaLevel(audio, getLevels('song').volume)
       noteNativeTrack(music.title, music.artist, coverUrl(music.image, 300), isFavorite(music.id))
       await audio.play()
@@ -513,6 +530,7 @@ export default function App() {
       if (token === playToken.current) playInFlightRef.current = false
     }
   }, [holdSong, primeNativeQueue, reportPlayError])
+  ensurePlayRef.current = ensurePlay
 
   const playRelative = useCallback(
     (delta: number) => {
@@ -529,6 +547,11 @@ export default function App() {
       const audio = audioRef.current
       if (result.replay || !result.item || result.item.id === cur.id) {
         if (!audio || mvActiveRef.current) return
+        if (hasNativeAudio() && Date.now() - loadedAtRef.current >= PLAY_URL_TTL) {
+          loadedIdRef.current = ''
+          void ensurePlay(cur)
+          return
+        }
         audio.currentTime = 0
         void audio.play().catch(() => setPlaying(false))
         return
@@ -711,6 +734,13 @@ export default function App() {
       })
       playHistoryRef.current = result.history
       if (result.replay || !result.item || result.item.id === cur.id) {
+        if (hasNativeAudio() && Date.now() - loadedAtRef.current >= PLAY_URL_TTL) {
+          loadedIdRef.current = ''
+          skipEndRef.current = false
+          finishedSrcRef.current = ''
+          void ensurePlay(cur)
+          return
+        }
         audio.currentTime = 0
         void audio.play().catch(() => {
           skipEndRef.current = false
@@ -811,6 +841,7 @@ export default function App() {
         playHistoryRef.current = primed.history
         currentRef.current = primed.item
         loadedIdRef.current = primed.item.id
+        loadedAtRef.current = primed.fetchedAt || Date.now()
         setCurrent(primed.item)
         addRecentPlay(primed.item)
         setLibraryVersion((version) => version + 1)
@@ -832,24 +863,42 @@ export default function App() {
       if (document.visibilityState !== 'visible' || mvActiveRef.current || !hasNativeAudio()) return
       const url = currentNativeUrl()
       const primed = url ? nativeTracksRef.current.get(url) : undefined
-      if (!primed || currentRef.current?.id === primed.item.id) return
-      playHistoryRef.current = primed.history
-      currentRef.current = primed.item
-      loadedIdRef.current = primed.item.id
-      heardTimeRef.current = 0
-      skipEndRef.current = false
-      finishedSrcRef.current = ''
-      setCurrent(primed.item)
-      addRecentPlay(primed.item)
-      setLibraryVersion((version) => version + 1)
-      setDetail((song) => (song ? primed.item : song))
-      noteNativeSong(primed.item.id)
-      noteNativeTrack(primed.item.title, primed.item.artist, coverUrl(primed.item.image, 300), isFavorite(primed.item.id))
-      setPlaying(true)
+      if (primed && currentRef.current?.id !== primed.item.id) {
+        playHistoryRef.current = primed.history
+        currentRef.current = primed.item
+        loadedIdRef.current = primed.item.id
+        loadedAtRef.current = primed.fetchedAt || Date.now()
+        heardTimeRef.current = 0
+        skipEndRef.current = false
+        finishedSrcRef.current = ''
+        setCurrent(primed.item)
+        addRecentPlay(primed.item)
+        setLibraryVersion((version) => version + 1)
+        setDetail((song) => (song ? primed.item : song))
+        noteNativeSong(primed.item.id)
+        noteNativeTrack(primed.item.title, primed.item.artist, coverUrl(primed.item.image, 300), isFavorite(primed.item.id))
+        setPlaying(true)
+      }
+      const audio = audioRef.current
+      const song = currentRef.current
+      if (song && audio && (audio.paused || audio.ended) && Date.now() - loadedAtRef.current >= PLAY_URL_TTL) {
+        loadedIdRef.current = ''
+        void ensurePlay(song)
+        return
+      }
       void primeNativeQueue()
     }
     document.addEventListener('visibilitychange', syncVisible)
     return () => document.removeEventListener('visibilitychange', syncVisible)
+  }, [primeNativeQueue, ensurePlay])
+
+  useEffect(() => {
+    if (!hasNativeAudio()) return
+    const timer = window.setInterval(() => {
+      if (!currentRef.current || mvActiveRef.current) return
+      void primeNativeQueue()
+    }, 8 * 60 * 1000)
+    return () => window.clearInterval(timer)
   }, [primeNativeQueue])
 
   useEffect(() => {
@@ -896,6 +945,7 @@ export default function App() {
     primedPrevRef.current = null
     nativeTracksRef.current.clear()
     loadedIdRef.current = ''
+    loadedAtRef.current = 0
     prepareNativeNext(null)
     prepareNativePrev(null)
     currentRef.current = null
@@ -909,9 +959,14 @@ export default function App() {
     const audio = audioRef.current
     if (!audio || !current || mvActiveRef.current) return
     if (audio.paused) {
-      void audio.play().catch(() => {
+      if (hasNativeAudio() && Date.now() - loadedAtRef.current >= PLAY_URL_TTL) {
+        loadedIdRef.current = ''
         void ensurePlay(current)
-      })
+      } else {
+        void audio.play().catch(() => {
+          void ensurePlay(current)
+        })
+      }
     } else {
       userPauseRef.current = true
       audio.pause()
@@ -930,6 +985,15 @@ export default function App() {
       const command = event instanceof CustomEvent ? String(event.detail || '') : ''
       if (command === 'next') playRelative(1)
       else if (command === 'prev') playRelative(-1)
+      else if (command.startsWith('refresh:')) {
+        const url = command.slice('refresh:'.length)
+        const primed = url ? nativeTracksRef.current.get(url) : undefined
+        const song = primed?.item || currentRef.current
+        if (!song) return
+        loadedIdRef.current = ''
+        loadedAtRef.current = 0
+        void ensurePlay(song)
+      }
       else if (command === 'toggle') togglePlay()
       else if (command === 'close') stopPlayback()
       else if (command === 'lyric') {
@@ -957,7 +1021,7 @@ export default function App() {
     }
     window.addEventListener('fmusic-native-command', onCommand)
     return () => window.removeEventListener('fmusic-native-command', onCommand)
-  }, [playRelative, togglePlay, stopPlayback, bumpLibrary, notify])
+  }, [playRelative, togglePlay, stopPlayback, bumpLibrary, notify, ensurePlay])
 
   useEffect(() => {
     if (!hasNativeAudio()) return

@@ -31,42 +31,49 @@ public class FMusicNet {
     }
 
     private void run(String id, String url, String method, String headersJson, String body) {
-        HttpURLConnection connection = null;
-        try {
-            if (!allowed(url)) {
-                finish(id, 0, "", "", "接口地址无效");
-                return;
-            }
-            String verb = method == null || method.isEmpty() ? "GET" : method.toUpperCase(Locale.ROOT);
-            connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setConnectTimeout(15000);
-            connection.setReadTimeout(25000);
-            connection.setInstanceFollowRedirects(true);
-            connection.setRequestMethod(verb);
-            connection.setRequestProperty("Accept", "*/*");
-            connection.setRequestProperty(
-                "User-Agent",
-                "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-            );
-            applyHeaders(connection, headersJson);
-            applyHostHeaders(connection, url);
-            if (!"GET".equals(verb) && !"HEAD".equals(verb) && body != null && !body.isEmpty()) {
-                byte[] payload = body.getBytes(StandardCharsets.UTF_8);
-                connection.setDoOutput(true);
-                connection.getOutputStream().write(payload);
-            }
-            int status = connection.getResponseCode();
-            String contentType = connection.getContentType() == null ? "" : connection.getContentType();
-            InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-            byte[] bytes = readFully(stream);
-            String encoded = Base64.encodeToString(bytes, Base64.NO_WRAP);
-            finish(id, status, contentType, encoded, "");
-        } catch (Exception error) {
-            String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
-            finish(id, 0, "", "", "接口 " + message);
-        } finally {
-            if (connection != null) connection.disconnect();
+        if (!allowed(url)) {
+            finish(id, 0, "", "", "接口地址无效");
+            return;
         }
+        Exception last = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            HttpURLConnection connection = null;
+            try {
+                String verb = method == null || method.isEmpty() ? "GET" : method.toUpperCase(Locale.ROOT);
+                connection = (HttpURLConnection) new URL(url).openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(25000);
+                connection.setInstanceFollowRedirects(true);
+                connection.setUseCaches(false);
+                connection.setRequestProperty("Connection", "close");
+                connection.setRequestMethod(verb);
+                connection.setRequestProperty("Accept", "*/*");
+                connection.setRequestProperty(
+                    "User-Agent",
+                    "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+                );
+                applyHeaders(connection, headersJson);
+                applyHostHeaders(connection, url);
+                if (!"GET".equals(verb) && !"HEAD".equals(verb) && body != null && !body.isEmpty()) {
+                    byte[] payload = body.getBytes(StandardCharsets.UTF_8);
+                    connection.setDoOutput(true);
+                    connection.getOutputStream().write(payload);
+                }
+                int status = connection.getResponseCode();
+                String contentType = connection.getContentType() == null ? "" : connection.getContentType();
+                InputStream stream = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+                byte[] bytes = readFully(stream);
+                String encoded = Base64.encodeToString(bytes, Base64.NO_WRAP);
+                finish(id, status, contentType, encoded, "");
+                connection.disconnect();
+                return;
+            } catch (Exception error) {
+                last = error;
+                if (connection != null) connection.disconnect();
+            }
+        }
+        String message = last == null || last.getMessage() == null ? "请求失败" : last.getMessage();
+        finish(id, 0, "", "", "接口 " + message);
     }
 
     private static void applyHeaders(HttpURLConnection connection, String headersJson) {

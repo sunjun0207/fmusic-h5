@@ -65,14 +65,18 @@ public class PlaybackService extends Service {
         final String title;
         final String artist;
         final String cover;
+        final long fetchedAt;
 
-        Track(String url, String title, String artist, String cover) {
+        Track(String url, String title, String artist, String cover, long fetchedAt) {
             this.url = url == null ? "" : url;
             this.title = title == null ? "" : title;
             this.artist = artist == null ? "" : artist;
             this.cover = cover == null ? "" : cover;
+            this.fetchedAt = fetchedAt > 0 ? fetchedAt : System.currentTimeMillis();
         }
     }
+
+    private static final long URL_TTL = 12L * 60L * 1000L;
 
     private static PlaybackService instance;
     private static Sink sink;
@@ -112,6 +116,7 @@ public class PlaybackService extends Service {
     private boolean cycleLoop;
     private boolean repeatOne;
     private int errorSkips;
+    private long currentFetchedAt;
     private String title = "碎冰音乐";
     private String artist = "正在播放";
     private String coverUrl = "";
@@ -205,8 +210,12 @@ public class PlaybackService extends Service {
     }
 
     private static Track trackOf(String url, String songTitle, String songArtist, String cover) {
+        return trackOf(url, songTitle, songArtist, cover, System.currentTimeMillis());
+    }
+
+    private static Track trackOf(String url, String songTitle, String songArtist, String cover, long fetchedAt) {
         if (!allowed(url)) return null;
-        return new Track(url, songTitle, songArtist, cover);
+        return new Track(url, songTitle, songArtist, cover, fetchedAt);
     }
 
     @Override
@@ -358,6 +367,7 @@ public class PlaybackService extends Service {
         allowResume = true;
         if (session != null) session.setActive(true);
         currentUrl = url;
+        currentFetchedAt = System.currentTimeMillis();
         open(url);
     }
 
@@ -436,22 +446,28 @@ public class PlaybackService extends Service {
     }
 
     private String requestLyric(String address) {
-        HttpURLConnection connection = null;
-        try {
-            connection = (HttpURLConnection) new URL(address).openConnection();
-            connection.setConnectTimeout(8000);
-            connection.setReadTimeout(12000);
-            connection.setInstanceFollowRedirects(true);
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0");
-            connection.setRequestProperty("Referer", "https://www.kuwo.cn/");
-            int code = connection.getResponseCode();
-            if (code < 200 || code >= 300) return "";
-            return lyricPayload(readLimited(connection.getInputStream()));
-        } catch (Exception ignored) {
-            return "";
-        } finally {
-            if (connection != null) connection.disconnect();
+        for (int attempt = 0; attempt < 2; attempt++) {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(address).openConnection();
+                connection.setConnectTimeout(8000);
+                connection.setReadTimeout(12000);
+                connection.setInstanceFollowRedirects(true);
+                connection.setUseCaches(false);
+                connection.setRequestProperty("Connection", "close");
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+                connection.setRequestProperty("Referer", "https://www.kuwo.cn/");
+                int code = connection.getResponseCode();
+                if (code < 200 || code >= 300) return "";
+                return lyricPayload(readLimited(connection.getInputStream()));
+            } catch (Exception ignored) {
+                if (connection != null) connection.disconnect();
+                connection = null;
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
         }
+        return "";
     }
 
     private String readLimited(InputStream stream) throws Exception {
@@ -589,6 +605,7 @@ public class PlaybackService extends Service {
         handler.removeCallbacks(tick);
         handler.removeCallbacks(recoverFocus);
         currentUrl = "";
+        currentFetchedAt = 0;
         nextTrack = null;
         prevTrack = null;
         cycle.clear();
@@ -737,7 +754,8 @@ public class PlaybackService extends Service {
                 for (int i = 0; i < list.length(); i++) {
                     JSONObject row = list.optJSONObject(i);
                     if (row == null) continue;
-                    Track track = trackOf(row.optString("url", ""), row.optString("title", ""), row.optString("artist", ""), row.optString("cover", ""));
+                    long at = row.optLong("at", System.currentTimeMillis());
+                    Track track = trackOf(row.optString("url", ""), row.optString("title", ""), row.optString("artist", ""), row.optString("cover", ""), at);
                     if (track == null) continue;
                     if (!next.isEmpty() && track.url.equals(next.get(next.size() - 1).url)) continue;
                     next.add(track);
@@ -761,6 +779,25 @@ public class PlaybackService extends Service {
         nextTrack = peekUpcoming();
     }
 
+    private boolean fresh(Track track) {
+        if (track == null) return false;
+        if (track.fetchedAt <= 0) return true;
+        return System.currentTimeMillis() - track.fetchedAt < URL_TTL;
+    }
+
+    private boolean currentUrlFresh() {
+        return currentFetchedAt <= 0 || System.currentTimeMillis() - currentFetchedAt < URL_TTL;
+    }
+
+    private void askRefresh() {
+        completed = true;
+        prepared = false;
+        playingAudio = false;
+        handler.removeCallbacks(tick);
+        emit("command", 0, 0, "refresh:" + currentUrl);
+        showForeground();
+    }
+
     private Track peekUpcoming() {
         if (cycle.isEmpty()) return null;
         int index = cycleIndex;
@@ -781,8 +818,17 @@ public class PlaybackService extends Service {
     }
 
     private void replayCurrent() {
-        if (player == null || currentUrl.isEmpty()) {
+        if (currentUrl.isEmpty()) {
             emit("ended", position(), duration(), "");
+            showForeground();
+            return;
+        }
+        if (!currentUrlFresh()) {
+            askRefresh();
+            return;
+        }
+        if (player == null) {
+            open(currentUrl);
             return;
         }
         try {
@@ -804,8 +850,18 @@ public class PlaybackService extends Service {
             replayCurrent();
             return;
         }
-        Track track = takeUpcoming();
-        if (track == null || !allowed(track.url)) {
+        Track track = peekUpcoming();
+        if (track == null || !fresh(track)) {
+            cycle.clear();
+            cycleIndex = 0;
+            cycleLoop = false;
+            nextTrack = null;
+            emit("ended", position(), duration(), "");
+            showForeground();
+            return;
+        }
+        takeUpcoming();
+        if (!allowed(track.url)) {
             emit("ended", position(), duration(), "");
             showForeground();
             return;
@@ -819,16 +875,21 @@ public class PlaybackService extends Service {
                 replayCurrent();
                 return;
             }
-            Track track = takeUpcoming();
-            if (track == null || !allowed(track.url)) {
+            Track track = peekUpcoming();
+            if (track == null || !fresh(track) || !allowed(track.url)) {
+                cycle.clear();
+                cycleIndex = 0;
+                cycleLoop = false;
+                nextTrack = null;
                 emit("command", 0, 0, "next");
                 return;
             }
+            takeUpcoming();
             startQueued(track);
             return;
         }
         Track track = prevTrack;
-        if (track == null || !allowed(track.url) || track.url.equals(currentUrl)) {
+        if (track == null || !fresh(track) || !allowed(track.url) || track.url.equals(currentUrl)) {
             emit("command", 0, 0, "prev");
             return;
         }
@@ -850,6 +911,7 @@ public class PlaybackService extends Service {
         allowResume = true;
         if (session != null) session.setActive(true);
         currentUrl = track.url;
+        currentFetchedAt = track.fetchedAt;
         open(track.url);
         emit("advanced", 0, 0, track.url);
     }
@@ -895,9 +957,25 @@ public class PlaybackService extends Service {
             if (player != next) return true;
             // 切歌重新申请音频焦点时，未准备好的播放器会被误启动，系统回报 -38，随后仍会正常开播。
             if (!prepared && (what == -38 || extra == -38)) return true;
-            if (!repeatOne && peekUpcoming() != null && errorSkips < 3) {
+            if (!currentUrlFresh() && errorSkips < 1) {
+                errorSkips += 1;
+                askRefresh();
+                return true;
+            }
+            Track upcoming = peekUpcoming();
+            if (!repeatOne && upcoming != null && fresh(upcoming) && errorSkips < 3) {
                 errorSkips += 1;
                 playUpcoming();
+                return true;
+            }
+            if (!repeatOne && upcoming != null && !fresh(upcoming) && errorSkips < 1) {
+                errorSkips += 1;
+                cycle.clear();
+                cycleIndex = 0;
+                cycleLoop = false;
+                nextTrack = null;
+                emit("command", 0, 0, "next");
+                showForeground();
                 return true;
             }
             errorSkips = 0;

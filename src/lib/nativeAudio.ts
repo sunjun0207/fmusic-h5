@@ -21,6 +21,7 @@ export type NativeTrackInfo = {
   title: string
   artist: string
   cover: string
+  at?: number
 }
 
 const emptyTrack: NativeTrackInfo = { url: '', title: '', artist: '', cover: '' }

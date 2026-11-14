@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { coverUrl, getComments, postDownload, toProxyAudioUrl } from '../lib/api'
 import { Pending } from './Pending'
 import { DanmakuLayer } from './DanmakuLayer'
@@ -69,10 +70,12 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
   const [message, setMessage] = useState('')
   const [comments, setComments] = useState<SongComment[]>([])
   const [danmakuOn] = useDanmakuSetting()
-  const { volume, brightness } = usePlaybackLevels('mv')
+  const { volume } = usePlaybackLevels('mv')
   const [danmakuBox, setDanmakuBox] = useState({ top: 12, left: 8, right: 8 })
   const [qualityOpen, setQualityOpen] = useState(false)
-  const [level, setLevel] = useState<'volume' | 'brightness' | null>(null)
+  const [volumeOpen, setVolumeOpen] = useState(false)
+  const qualityBtnRef = useRef<HTMLButtonElement>(null)
+  const [qualityBox, setQualityBox] = useState<{ left: number; top: number } | null>(null)
   const [loop, setLoop] = useState(false)
   const loopRef = useRef(false)
   const replayingRef = useRef(false)
@@ -85,13 +88,13 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
     window.clearTimeout(hideTimer.current)
     hideTimer.current = window.setTimeout(() => {
       setQualityOpen(false)
-      setLevel(null)
+      setVolumeOpen(false)
       setChrome(false)
     }, 3000)
   }, [])
 
   const keepChrome = (event: ReactPointerEvent) => {
-    if (!chrome || qualityOpen || level) return
+    if (!chrome || qualityOpen || volumeOpen) return
     const stage = stageRef.current
     if (stage && event.target instanceof Node && stage.contains(event.target)) return
     scheduleHide()
@@ -101,8 +104,9 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
     if (!qualityOpen) return
     const close = (event: PointerEvent) => {
       const target = event.target
-      const menu = layerRef.current?.querySelector('.mv-quality')
-      if (target instanceof Node && menu?.contains(target)) return
+      const menu = document.querySelector('.mv-quality-menu')
+      const anchor = layerRef.current?.querySelector('.mv-quality')
+      if (target instanceof Node && (menu?.contains(target) || anchor?.contains(target))) return
       setQualityOpen(false)
     }
     window.addEventListener('pointerdown', close)
@@ -198,23 +202,80 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
     const video = videoRef.current
     if (!stage) return
     const place = () => {
-      const sw = stage.clientWidth
-      const sh = stage.clientHeight
+      const viewW = window.visualViewport?.width || window.innerWidth
+      const viewH = window.visualViewport?.height || window.innerHeight
+      const shortSide = Math.min(viewW, viewH)
+      const longSide = Math.max(viewW, viewH)
+      const stageW = stage.clientWidth
+      const stageH = stage.clientHeight
+      // 竖屏按短边限制宽度，避免退出全屏后左右黑边、上下超出屏幕。
+      // 全屏横屏用真正的横屏尺寸铺满，舞台还没转过来时也不要按竖屏宽度去留黑边。
+      let sw = Math.min(stageW || shortSide, shortSide)
+      let sh = Math.min(stageH || longSide, longSide)
+      if (fullscreen) {
+        if (stageW >= stageH && stageW > 0 && stageH > 0) {
+          sw = stageW
+          sh = stageH
+        } else if (viewW >= viewH && viewW > 0 && viewH > 0) {
+          sw = viewW
+          sh = viewH
+        } else {
+          sw = longSide
+          sh = shortSide
+        }
+      }
       const vw = video?.videoWidth || 0
       const vh = video?.videoHeight || 0
-      if (!video || !sw || !sh || !vw || !vh) {
+      if (!video || !sw || !sh) {
         setDanmakuBox({ top: 12, left: 8, right: 8 })
         return
       }
-      const scale = Math.min(sw / vw, sh / vh)
-      const pictureWidth = Math.round(vw * scale)
-      const pictureHeight = Math.round(vh * scale)
+      if (!vw || !vh) {
+        const pictureWidth = sw
+        const pictureHeight = Math.min(sh, Math.round(sw * 9 / 16))
+        const pictureTop = Math.max(0, (sh - pictureHeight) / 2)
+        video.style.left = '0px'
+        video.style.top = `${pictureTop}px`
+        video.style.right = 'auto'
+        video.style.bottom = 'auto'
+        video.style.width = `${pictureWidth}px`
+        video.style.height = `${pictureHeight}px`
+        video.style.maxWidth = '100%'
+        video.style.maxHeight = '100%'
+        video.style.objectFit = 'contain'
+        video.style.transform = 'none'
+        setDanmakuBox({ top: Math.round(pictureTop + 8), left: 8, right: 8 })
+        return
+      }
+      // 全屏用 cover 铺满宽屏，字幕在画面底部，高出的部分从顶部裁掉。
+      const scale = fullscreen ? Math.max(sw / vw, sh / vh) : Math.min(sw / vw, sh / vh)
+      const pictureWidth = Math.max(1, Math.round(vw * scale))
+      const pictureHeight = Math.max(1, Math.round(vh * scale))
+      let pictureLeft = (sw - pictureWidth) / 2
+      let coverBottom = sh
+      if (fullscreen && chrome) {
+        const bar = stage.parentElement?.querySelector('.mv-bar')
+        if (bar instanceof HTMLElement) {
+          const barTop = bar.getBoundingClientRect().top - stage.getBoundingClientRect().top
+          if (barTop > sh * 0.45) coverBottom = barTop - 8
+        }
+      }
+      const pictureTop = fullscreen
+        ? (pictureHeight > coverBottom ? coverBottom - pictureHeight : (sh - pictureHeight) / 2)
+        : Math.max(0, (sh - pictureHeight) / 2)
+      if (!fullscreen) pictureLeft = Math.max(0, pictureLeft)
+      video.style.left = `${pictureLeft}px`
+      video.style.top = `${pictureTop}px`
+      video.style.right = 'auto'
+      video.style.bottom = 'auto'
       video.style.width = `${pictureWidth}px`
       video.style.height = `${pictureHeight}px`
-      video.style.objectFit = 'contain'
-      const pictureTop = Math.max(0, (sh - pictureHeight) / 2)
-      const pictureLeft = Math.max(0, (sw - pictureWidth) / 2)
-      let top = pictureTop + 8
+      video.style.maxWidth = fullscreen ? 'none' : '100%'
+      video.style.maxHeight = fullscreen ? 'none' : '100%'
+      video.style.objectFit = fullscreen ? 'fill' : 'contain'
+      video.style.objectPosition = 'center bottom'
+      video.style.transform = 'none'
+      let top = Math.max(12, pictureTop + 8)
       if (fullscreen && chrome) {
         const head = stage.parentElement?.querySelector('.mv-head')
         if (head instanceof HTMLElement) {
@@ -224,30 +285,56 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
       }
       setDanmakuBox({
         top: Math.round(top),
-        left: Math.round(pictureLeft + 8),
-        right: Math.round(pictureLeft + 8),
+        left: Math.round(Math.max(8, pictureLeft + 8)),
+        right: Math.round(Math.max(8, sw - (pictureLeft + pictureWidth) + 8)),
       })
     }
     place()
     const frame = window.requestAnimationFrame(place)
+    const timers = [80, 240, 480].map((ms) => window.setTimeout(place, ms))
     const observer = new ResizeObserver(place)
     observer.observe(stage)
     video?.addEventListener('loadedmetadata', place)
+    window.addEventListener('resize', place)
+    window.addEventListener('orientationchange', place)
+    window.visualViewport?.addEventListener('resize', place)
     return () => {
       window.cancelAnimationFrame(frame)
+      timers.forEach((id) => window.clearTimeout(id))
       observer.disconnect()
       video?.removeEventListener('loadedmetadata', place)
+      window.removeEventListener('resize', place)
+      window.removeEventListener('orientationchange', place)
+      window.visualViewport?.removeEventListener('resize', place)
     }
   }, [url, chrome, fullscreen])
 
+  useLayoutEffect(() => {
+    if (!qualityOpen || !qualityBtnRef.current) return
+    const update = () => {
+      const anchor = qualityBtnRef.current
+      if (!anchor) return
+      const rect = anchor.getBoundingClientRect()
+      const width = 128
+      const height = 12 + MV_QUALITIES.length * 40
+      const left = Math.min(Math.max(8, rect.left), window.innerWidth - width - 8)
+      let top = rect.top - 8 - height
+      if (top < 8) top = Math.min(rect.bottom + 8, window.innerHeight - height - 8)
+      setQualityBox({ left, top })
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [qualityOpen])
+
   useEffect(() => {
-    if (!chrome || qualityOpen || level) {
+    if (!chrome || qualityOpen || volumeOpen) {
       window.clearTimeout(hideTimer.current)
       return
     }
     scheduleHide()
     return () => window.clearTimeout(hideTimer.current)
-  }, [chrome, qualityOpen, level, url, scheduleHide])
+  }, [chrome, qualityOpen, volumeOpen, url, scheduleHide])
 
   const toggleFullscreen = async () => {
     const layer = layerRef.current
@@ -419,8 +506,8 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
         ref={stageRef}
         className="mv-stage"
         onClick={() => {
-          setLevel(null)
           setQualityOpen(false)
+          setVolumeOpen(false)
           setChrome((open) => !open)
         }}
       >
@@ -476,7 +563,6 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
             <Pending text={loading ? '正在获取 MV…' : 'MV 准备中'} tone="dark" />
           </div>
         )}
-        <div className="mv-dim" style={{ opacity: (100 - brightness) / 100 }} />
         <DanmakuLayer comments={comments} enabled={danmakuOn} style={danmakuBox} />
       </div>
 
@@ -515,43 +601,21 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
           {fmt(current)} / {fmt(duration)}
         </span>
         </div>
-        {level ? <PlaybackLevels scope="mv" tone="dark" only={level} /> : null}
         {message ? <p className="mv-message">{message}</p> : null}
         <div className="mv-tools">
-        <button
-          type="button"
-          className={`mv-icon${level === 'volume' ? ' is-on' : ''}`}
-          aria-pressed={level === 'volume'}
-          aria-label="音量"
-          onClick={() => {
-            setQualityOpen(false)
-            setLevel((current) => (current === 'volume' ? null : 'volume'))
+        <PlaybackLevels
+          scope="mv"
+          tone="dark"
+          compact
+          open={volumeOpen}
+          onOpenChange={(next) => {
+            setVolumeOpen(next)
+            if (next) setQualityOpen(false)
           }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <path d="M4.5 10v4h3.1L12 18.2V5.8L7.6 10H4.5Z" strokeLinejoin="round" />
-            {volume === 0 ? <path d="M16 10.2 20 14.2M20 10.2 16 14.2" strokeLinecap="round" /> : null}
-            {volume > 0 ? <path d="M15.4 9.3a3.4 3.4 0 0 1 0 5.4" strokeLinecap="round" /> : null}
-            {volume > 45 ? <path d="M17.7 7.2a6.2 6.2 0 0 1 0 9.6" strokeLinecap="round" /> : null}
-          </svg>
-        </button>
-        <button
-          type="button"
-          className={`mv-icon${level === 'brightness' ? ' is-on' : ''}`}
-          aria-pressed={level === 'brightness'}
-          aria-label="亮度"
-          onClick={() => {
-            setQualityOpen(false)
-            setLevel((current) => (current === 'brightness' ? null : 'brightness'))
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-            <circle cx="12" cy="12" r="3.1" />
-            <path d="M12 3.6v2.1M12 18.3v2.1M3.6 12h2.1M18.3 12h2.1M6.1 6.1l1.5 1.5M16.4 16.4l1.5 1.5M17.9 6.1l-1.5 1.5M7.6 16.4l-1.5 1.5" strokeLinecap="round" />
-          </svg>
-        </button>
+        />
         <div className={`mv-quality${qualityOpen ? ' is-open' : ''}`}>
           <button
+            ref={qualityBtnRef}
             type="button"
             className="mv-pill"
             aria-haspopup="listbox"
@@ -559,42 +623,45 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
             aria-label={`清晰度 ${mvLabel(quality)}`}
             disabled={loading}
             onClick={() => {
-              setLevel(null)
+              setVolumeOpen(false)
               setQualityOpen((open) => !open)
             }}
           >
             {mvLabel(quality)}
           </button>
-          {qualityOpen ? (
-            <div className="mv-quality-menu" role="listbox" aria-label="清晰度">
-              {MV_QUALITIES.map((item) => {
-                const missing = !qualities.includes(item.id)
-                const current = item.id === visibleMvQuality(quality)
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="option"
-                    aria-selected={current}
-                    aria-disabled={missing}
-                    disabled={missing}
-                    className={current ? 'is-on' : ''}
-                    onClick={() => {
-                      if (missing || current) {
-                        setQualityOpen(false)
-                        return
-                      }
-                      resumeAt.current = videoRef.current?.currentTime || 0
-                      setQualityOpen(false)
-                      onQuality(item.id)
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                )
-              })}
-            </div>
-          ) : null}
+          {qualityOpen && qualityBox
+            ? createPortal(
+                <div className="mv-quality-menu" role="listbox" aria-label="清晰度" style={{ left: qualityBox.left, top: qualityBox.top }}>
+                  {MV_QUALITIES.map((item) => {
+                    const missing = !qualities.includes(item.id)
+                    const current = item.id === visibleMvQuality(quality)
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        role="option"
+                        aria-selected={current}
+                        aria-disabled={missing}
+                        disabled={missing}
+                        className={current ? 'is-on' : ''}
+                        onClick={() => {
+                          if (missing || current) {
+                            setQualityOpen(false)
+                            return
+                          }
+                          resumeAt.current = videoRef.current?.currentTime || 0
+                          setQualityOpen(false)
+                          onQuality(item.id)
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    )
+                  })}
+                </div>,
+                document.body,
+              )
+            : null}
         </div>
         <div className="mv-action-end">
         <button

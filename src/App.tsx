@@ -480,22 +480,69 @@ export default function App() {
     }
     const token = ++playToken.current
     playInFlightRef.current = true
+    const previous = currentRef.current
     setCurrent(music)
     currentRef.current = music
     heardTimeRef.current = 0
     noteNativeSong(music.id)
     noteNativeTrack(music.title, music.artist, coverUrl(music.image, 300), isFavorite(music.id))
-    if (audio.getAttribute('src') && !audio.paused) {
-      skipEndRef.current = true
-      userPauseRef.current = true
-      audio.pause()
-    }
     addRecentPlay(music)
     setLibraryVersion((v) => v + 1)
     setDetail((d) => (d ? music : d))
+    const freshPrimed = () => {
+      const now = Date.now()
+      const cached = [primedNextRef.current, primedPrevRef.current, ...nativeTracksRef.current.values()]
+      for (const track of cached) {
+        if (!track?.url || track.item.id !== music.id) continue
+        if (now - track.fetchedAt >= PLAY_URL_TTL) continue
+        return track
+      }
+      return null
+    }
+    const restorePrevious = () => {
+      if (!previous || previous.id === music.id) return
+      currentRef.current = previous
+      setCurrent(previous)
+      setDetail((song) => (song ? previous : song))
+      noteNativeSong(previous.id)
+      noteNativeTrack(previous.title, previous.artist, coverUrl(previous.image, 300), isFavorite(previous.id))
+    }
     try {
-      const quality = br || getSettings().quality
-      const meta = await getPlayMeta(music.id, quality)
+      const primed = freshPrimed()
+      let url = primed?.url || ''
+      let fetchedAt = primed?.fetchedAt || 0
+      if (!url) {
+        const quality = br || getSettings().quality
+        let metaError: unknown
+        try {
+          url = (await getPlayMeta(music.id, quality)).url
+          fetchedAt = Date.now()
+        } catch (error) {
+          metaError = error
+        }
+        if (!url && token === playToken.current && !mvActiveRef.current) {
+          try {
+            url = (await getPlayMeta(music.id, quality)).url
+            fetchedAt = Date.now()
+            metaError = undefined
+          } catch (error) {
+            metaError = error
+          }
+        }
+        if (!url) {
+          const late = freshPrimed()
+          if (late) {
+            url = late.url
+            fetchedAt = late.fetchedAt
+          } else {
+            if (token === playToken.current && !mvActiveRef.current) {
+              restorePrevious()
+              reportPlayError(metaError)
+            }
+            return
+          }
+        }
+      }
       if (token !== playToken.current || mvActiveRef.current) {
         if (token === playToken.current) {
           skipEndRef.current = false
@@ -503,11 +550,16 @@ export default function App() {
         }
         return
       }
-      if (audio.getAttribute('src') !== meta.url) {
-        audio.src = meta.url
+      if (audio.getAttribute('src') && !audio.paused && audio.getAttribute('src') !== url) {
+        skipEndRef.current = true
+        userPauseRef.current = true
+        audio.pause()
+      }
+      if (audio.getAttribute('src') !== url) {
+        audio.src = url
       }
       loadedIdRef.current = music.id
-      loadedAtRef.current = Date.now()
+      loadedAtRef.current = fetchedAt || Date.now()
       applyMediaLevel(audio, getLevels('song').volume)
       noteNativeTrack(music.title, music.artist, coverUrl(music.image, 300), isFavorite(music.id))
       await audio.play()
@@ -761,9 +813,9 @@ export default function App() {
       if (audio.ended || reachedEnd()) finishTrack()
     }
     const onError = () => {
-      if (!audio.getAttribute('src') || mvActiveRef.current || heldAudioRef.current) return
+      if (!audio.getAttribute('src') || mvActiveRef.current || heldAudioRef.current || playInFlightRef.current) return
       setPlaying(false)
-      notify(navigator.onLine === false ? TEXT.network : TEXT.playFailed)
+      notify(TEXT.playFailed)
     }
     const onEnded = () => {
       if (mvActiveRef.current) {
@@ -983,7 +1035,14 @@ export default function App() {
       const command = event instanceof CustomEvent ? String(event.detail || '') : ''
       if (command === 'next') playRelative(1)
       else if (command === 'prev') playRelative(-1)
-      else if (command === 'reprime') {
+      else if (command === 'continue') {
+        const song = currentRef.current
+        const audio = audioRef.current
+        if (!song || !audio || mvActiveRef.current || playInFlightRef.current || !audio.paused) return
+        loadedIdRef.current = ''
+        loadedAtRef.current = 0
+        void ensurePlay(song)
+      } else if (command === 'reprime') {
         if (!mvActiveRef.current) void primeNativeQueue()
       } else if (command.startsWith('refresh:')) {
         const url = command.slice('refresh:'.length)

@@ -192,14 +192,19 @@ export const TEXT = {
   retry: '再试一次',
 }
 
-/** 把网络层的报错换成品牌口吻。断网、超时、JSONP 失败都算网络问题。 */
+/** 把网络层的报错换成品牌口吻。断网、超时、连接失败都算网络问题，不把系统原文弹出来。 */
 export function friendlyError(error: unknown, fallback: string = TEXT.network): string {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return TEXT.network
   const nativeNet = typeof window !== 'undefined' && (window as Window & { FMusicNet?: unknown }).FMusicNet
-  if (nativeNet && error instanceof Error && error.message) return error.message
-  if (error instanceof TypeError) return TEXT.network
-  if (error instanceof Error && /请求失败|请求超时|Failed to fetch|NetworkError|Load failed/i.test(error.message)) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false && !nativeNet) return TEXT.network
+  const message = error instanceof Error ? error.message.trim() : ''
+  if (
+    /网络异常|网络不可用|请求失败|请求超时|接口超时|接口 |Failed to fetch|NetworkError|Load failed|UnknownHost|ConnectException|SocketException|EAI_|timed out/i.test(
+      message,
+    )
+  ) {
     return TEXT.network
   }
+  if (error instanceof TypeError) return TEXT.network
+  if (message && message.length <= 24 && !/exception|error/i.test(message)) return message
   return fallback
 }

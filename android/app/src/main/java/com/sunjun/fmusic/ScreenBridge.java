@@ -90,5 +90,6 @@ public class ScreenBridge {
             }
         }
         webView.post(webView::requestLayout);
+        webView.postDelayed(webView::requestLayout, 220);
     }
 }

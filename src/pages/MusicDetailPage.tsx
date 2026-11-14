@@ -7,7 +7,7 @@ import { PLAY_MODE_LABEL } from '../lib/playback'
 import { getSettings, getShowLyric, isFavorite, saveShowLyric, toggleFavorite, upsertDownload } from '../lib/storage'
 import type { DownloadTask, LyricLine, MusicItem, PlayMode, QualityOption, SongComment } from '../lib/types'
 import { CommentList } from '../components/CommentList'
-import { PlaybackLevels, usePlaybackLevels } from '../components/LevelSlider'
+import { PlaybackLevels } from '../components/LevelSlider'
 import { DanmakuLayer } from '../components/DanmakuLayer'
 import { DanmakuSwitch, useDanmakuSetting } from '../components/DanmakuSwitch'
 import { DownloadSheet } from '../components/DownloadSheet'
@@ -27,7 +27,7 @@ import { LyricView } from '../components/LyricView'
 function BackButton({ onBack, light = false }: { onBack: () => void; light?: boolean }) {
   return (
     <button type="button" className={`detail-back${light ? ' is-light' : ''}`} onClick={onBack} aria-label="返回">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
         <path d="M15 5 8 12l7 7" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     </button>
@@ -37,7 +37,7 @@ function BackButton({ onBack, light = false }: { onBack: () => void; light?: boo
 function ShareButton({ onShare, light = false }: { onShare: () => void; light?: boolean }) {
   return (
     <button type="button" className={`detail-back${light ? ' is-light' : ''}`} onClick={onShare} aria-label={TEXT.share}>
-      <ShareIcon size={16} />
+      <ShareIcon size={18} />
     </button>
   )
 }
@@ -155,7 +155,6 @@ export function MusicDetailPage({
   const [commentMore, setCommentMore] = useState(false)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const [danmakuOn] = useDanmakuSetting()
-  const { brightness } = usePlaybackLevels('song')
   const commentPanelRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef({ x: 0, y: 0, dx: 0, active: false })
   const swipedRef = useRef(false)
@@ -433,7 +432,6 @@ export function MusicDetailPage({
             {src ? <img src={src} alt="" /> : <span />}
           </div>
           <DanmakuLayer comments={comments} enabled={danmakuOn} />
-          <div className="media-dim" style={{ opacity: (100 - brightness) / 100 }} />
           <div className="lyric-body">
             <LyricView lines={lyrics} status={lyricStatus} current={currentTime} onSeek={playAt} />
           </div>
@@ -500,7 +498,6 @@ export function MusicDetailPage({
             ) : (
               <div className="detail-cover" />
             )}
-            <div className="media-dim" style={{ opacity: (100 - brightness) / 100 }} />
           </div>
           <div className="detail-info">
             <h2>{music.title}</h2>
@@ -516,7 +513,7 @@ export function MusicDetailPage({
       <div className="detail-actions">
         <button
           type="button"
-          className={`action-chip fav${fav ? ' on' : ''}`}
+          className={`pad fav${fav ? ' on' : ''}`}
           onClick={() => {
             const next = toggleFavorite(music)
             setFav(next)
@@ -526,39 +523,42 @@ export function MusicDetailPage({
           aria-pressed={fav}
           aria-label={fav ? '从我的音乐宇宙移出' : TEXT.favorite}
         >
-          <HeartIcon filled={fav} />
+          <span className="pad-face">
+            <HeartIcon filled={fav} />
+          </span>
           <span>{fav ? '已收藏' : '收藏'}</span>
         </button>
-        <button
-          type="button"
-          className={`action-chip lyric${lyricOpen ? ' on' : ''}`}
-          aria-pressed={lyricOpen}
-          onClick={toggleLyric}
-        >
-          <LyricIcon />
+        <button type="button" className={`pad lyric${lyricOpen ? ' on' : ''}`} aria-pressed={lyricOpen} onClick={toggleLyric}>
+          <span className="pad-face">
+            <LyricIcon />
+          </span>
           <span>{lyricOpen ? '收起' : '歌词'}</span>
         </button>
         {music.hasMv ? (
           <button
             type="button"
-            className="action-chip mv"
+            className="pad"
             onPointerDown={() => {
               void getMvUrl(music.id).catch(() => undefined)
             }}
             onClick={() => onPlayMv(music)}
           >
-            <MvIcon />
+            <span className="pad-face">
+              <MvIcon />
+            </span>
             <span>播放MV</span>
           </button>
         ) : music.hasMv === false ? (
-          <span className="action-chip is-static">
-            <MvIcon />
+          <span className="pad is-static">
+            <span className="pad-face">
+              <MvIcon />
+            </span>
             <span>暂无MV</span>
           </span>
         ) : null}
         <button
           type="button"
-          className={`action-chip comment${commentsOpen ? ' on' : ''}`}
+          className={`pad comment${commentsOpen ? ' on' : ''}`}
           aria-pressed={commentsOpen}
           aria-label={
             commentStatus === 'loading'
@@ -567,18 +567,22 @@ export function MusicDetailPage({
           }
           onClick={toggleComments}
         >
-          <span className="chip-icon">
+          <span className="pad-face chip-icon">
             <CommentIcon />
             {commentStatus !== 'loading' ? <i className="chip-count">{formatCount(commentTotal)}</i> : null}
           </span>
           <span>{commentsOpen ? '收起' : '评论'}</span>
         </button>
-        <button type="button" className="action-chip download" onClick={() => setSheetOpen(true)}>
-          <DownloadIcon />
+        <button type="button" className="pad" onClick={() => setSheetOpen(true)}>
+          <span className="pad-face">
+            <DownloadIcon />
+          </span>
           <span>下载</span>
         </button>
-        <button type="button" className="action-chip add" onClick={() => app.addToPlaylist(music)} aria-label="收藏到歌单">
-          <AddListIcon />
+        <button type="button" className="pad" onClick={() => app.addToPlaylist(music)} aria-label="收藏到歌单">
+          <span className="pad-face">
+            <AddListIcon />
+          </span>
           <span>歌单</span>
         </button>
       </div>
@@ -604,23 +608,26 @@ export function MusicDetailPage({
         </div>
       </div>
 
-      <PlaybackLevels scope="song" />
-
       <div className="player-block">
         <div className="player-utils">
           <button
             type="button"
-            className="util-btn"
+            className="pad"
             onClick={onCycleMode}
             aria-label={`循环模式：${PLAY_MODE_LABEL[playMode]}，点击切换`}
           >
-            <PlayModeIcon mode={playMode} />
+            <span className="pad-face">
+              <PlayModeIcon mode={playMode} />
+            </span>
             <span>{PLAY_MODE_LABEL[playMode]}</span>
           </button>
-          <button type="button" className="util-btn" onClick={onOpenQueue}>
-            <QueueIcon />
+          <button type="button" className="pad" onClick={onOpenQueue}>
+            <span className="pad-face">
+              <QueueIcon />
+            </span>
             <span>播放列表</span>
           </button>
+          <PlaybackLevels scope="song" compact caption="音量" expand="inline" />
         </div>
         <div className="player-main">
           <button type="button" className="transport" onClick={onPrev} disabled={!canPrev}>

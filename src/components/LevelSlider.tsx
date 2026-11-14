@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { getLevels, LEVELS_EVENT, saveLevels, type LevelScope, type PlaybackLevels } from '../lib/levels'
 
 function clamp(value: number) {
@@ -33,18 +34,6 @@ function VolumeIcon({ value }: { value: number }) {
       {value === 0 ? <path d="M16 10.2 20 14.2M20 10.2 16 14.2" strokeLinecap="round" /> : null}
       {value > 0 ? <path d="M15.4 9.3a3.4 3.4 0 0 1 0 5.4" strokeLinecap="round" /> : null}
       {value > 45 ? <path d="M17.7 7.2a6.2 6.2 0 0 1 0 9.6" strokeLinecap="round" /> : null}
-    </svg>
-  )
-}
-
-function BrightnessIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
-      <circle cx="12" cy="12" r="3.1" />
-      <path
-        d="M12 3.6v2.1M12 18.3v2.1M3.6 12h2.1M18.3 12h2.1M6.1 6.1l1.5 1.5M16.4 16.4l1.5 1.5M17.9 6.1l-1.5 1.5M7.6 16.4l-1.5 1.5"
-        strokeLinecap="round"
-      />
     </svg>
   )
 }
@@ -115,20 +104,102 @@ function LevelSlider({
   )
 }
 
+function placePopover(anchor: HTMLElement, width: number, height: number) {
+  const rect = anchor.getBoundingClientRect()
+  const left = Math.min(Math.max(8, rect.left + rect.width / 2 - width / 2), window.innerWidth - width - 8)
+  let top = rect.top - 8 - height
+  if (top < 8) top = Math.min(rect.bottom + 8, window.innerHeight - height - 8)
+  return { left, top }
+}
+
 export function PlaybackLevels({
   scope,
   tone = 'light',
-  only,
+  compact = false,
+  caption,
+  expand = 'pop',
+  open,
+  onOpenChange,
 }: {
   scope: LevelScope
   tone?: 'light' | 'dark'
-  only?: 'volume' | 'brightness'
+  compact?: boolean
+  caption?: string
+  expand?: 'pop' | 'inline'
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
-  const { volume, brightness, setVolume, setBrightness } = usePlaybackLevels(scope)
+  const { volume, setVolume } = usePlaybackLevels(scope)
+  const [innerOpen, setInnerOpen] = useState(false)
+  const shown = open ?? innerOpen
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const [box, setBox] = useState<{ left: number; top: number } | null>(null)
+  const setShown = (next: boolean) => {
+    if (open === undefined) setInnerOpen(next)
+    onOpenChange?.(next)
+  }
+
+  useLayoutEffect(() => {
+    if (!compact || expand !== 'pop' || !shown || !btnRef.current) return
+    const update = () => {
+      if (btnRef.current) setBox(placePopover(btnRef.current, 188, 44))
+    }
+    update()
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [compact, expand, shown])
+
+  useEffect(() => {
+    if (!compact || !shown) return
+    const close = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (btnRef.current?.contains(target)) return
+      if (target instanceof Element && target.closest('.volume-pop-panel, .volume-inline')) return
+      setShown(false)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [compact, shown, open])
+
+  if (!compact) {
+    return (
+      <div className={`level-row${tone === 'dark' ? ' is-dark' : ''}`}>
+        <LevelSlider label="音量" value={volume} icon={<VolumeIcon value={volume} />} onChange={setVolume} />
+      </div>
+    )
+  }
+
+  const slider = <LevelSlider label="音量" value={volume} icon={<VolumeIcon value={volume} />} onChange={setVolume} />
+
   return (
-    <div className={`level-row${tone === 'dark' ? ' is-dark' : ''}`}>
-      {only !== 'brightness' ? <LevelSlider label="音量" value={volume} icon={<VolumeIcon value={volume} />} onChange={setVolume} /> : null}
-      {only !== 'volume' ? <LevelSlider label="亮度" value={brightness} icon={<BrightnessIcon />} onChange={setBrightness} /> : null}
+    <div className={`volume-pop${tone === 'dark' ? ' is-dark' : ''}${expand === 'inline' ? ' is-inline' : ''}`}>
+      {expand === 'inline' && shown ? <div className="volume-inline">{slider}</div> : null}
+      <button
+        ref={btnRef}
+        type="button"
+        className={`volume-pop-btn${caption ? ' pad has-caption' : ''}${shown ? ' is-on' : ''}`}
+        aria-label="音量"
+        aria-pressed={shown}
+        onClick={() => setShown(!shown)}
+      >
+        {caption ? (
+          <span className="pad-face">
+            <VolumeIcon value={volume} />
+          </span>
+        ) : (
+          <VolumeIcon value={volume} />
+        )}
+        {caption ? <span>{caption}</span> : null}
+      </button>
+      {expand === 'pop' && shown && box
+        ? createPortal(
+            <div className={`volume-pop-panel${tone === 'dark' ? ' is-dark' : ''}`} style={{ left: box.left, top: box.top }}>
+              {slider}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

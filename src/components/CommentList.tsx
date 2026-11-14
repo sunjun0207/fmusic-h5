@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Img } from './Img'
 import { Pending } from './Pending'
 import type { SongComment } from '../lib/types'
 
@@ -33,33 +34,36 @@ function CommentThread({ comment, depth = 0 }: { comment: SongComment; depth?: n
   const showReplies = depth === 0 || expanded
   return (
     <div className="comment-thread">
-      <div className="comment-meta">
-        <strong>{comment.name}</strong>
-        <span>{comment.time.slice(0, 16)}</span>
-      </div>
-      <p>{comment.text}</p>
-      <div className="comment-stats">
-        <span className="comment-stat">
-          <HeartIcon />
-          {comment.likes}
-        </span>
-        <span className="comment-stat">
-          <ReplyIcon />
-          {comment.replyCount}
-        </span>
-      </div>
-      {replies.length && showReplies ? (
-        <div className="comment-replies">
-          {replies.map((reply) => (
-            <CommentThread key={reply.id} comment={reply} depth={depth + 1} />
-          ))}
+      <Img className="comment-avatar" src={comment.avatar} label={comment.name} alt="" />
+      <div className="comment-main">
+        <div className="comment-meta">
+          <strong>{comment.name}</strong>
+          <span>{comment.time.slice(0, 16)}</span>
         </div>
-      ) : null}
-      {replies.length && !showReplies ? (
-        <button type="button" className="comment-expand" onClick={() => setExpanded(true)}>
-          展开{comment.replyCount}条评论
-        </button>
-      ) : null}
+        <p>{comment.text}</p>
+        <div className="comment-stats">
+          <span className="comment-stat">
+            <HeartIcon />
+            {comment.likes}
+          </span>
+          <span className="comment-stat">
+            <ReplyIcon />
+            {comment.replyCount}
+          </span>
+        </div>
+        {replies.length && showReplies ? (
+          <div className="comment-replies">
+            {replies.map((reply) => (
+              <CommentThread key={reply.id} comment={reply} depth={depth + 1} />
+            ))}
+          </div>
+        ) : null}
+        {replies.length && !showReplies ? (
+          <button type="button" className="comment-expand" onClick={() => setExpanded(true)}>
+            展开{comment.replyCount}条评论
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -79,7 +83,6 @@ export function CommentList({ comments, total, status, loadingMore, onMore }: Pr
       <ul className="comment-list">
         {comments.map((comment) => (
           <li key={comment.id}>
-            {comment.avatar ? <img src={comment.avatar} alt="" /> : <span className="comment-avatar" />}
             <CommentThread comment={comment} />
           </li>
         ))}

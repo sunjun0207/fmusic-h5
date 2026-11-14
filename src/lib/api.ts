@@ -481,16 +481,20 @@ export async function postSearch(keyword: string): Promise<void> {
 }
 
 function commentAvatar(url: string): string {
-  if (!url) return ''
+  const raw = url.trim()
+  if (!raw) return ''
   try {
-    const parsed = new URL(url)
+    const parsed = new URL(raw, 'https://www.kuwo.cn')
+    // 挂件图文件已经从曲库下架，拿来当头像只会显示裂图。
+    if (parsed.pathname.includes('/hanger/')) return ''
     if (parsed.hostname.includes('kuwo.cn') && parsed.pathname.includes('/userhead/')) {
       return endpoint('img', `${parsed.pathname}${parsed.search}`)
     }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return ''
     if (parsed.protocol === 'http:') parsed.protocol = 'https:'
     return parsed.toString()
   } catch {
-    return url
+    return ''
   }
 }
 

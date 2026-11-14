@@ -117,6 +117,7 @@ public class PlaybackService extends Service {
     private boolean repeatOne;
     private int errorSkips;
     private int handoffs;
+    private int continueTries;
     private long handoffAt;
     private long reprimeAt;
     private long ignoreFocusLossUntil;
@@ -133,6 +134,7 @@ public class PlaybackService extends Service {
     private boolean closing;
     private boolean allowResume;
     private boolean userPaused;
+    private boolean wantPlaying;
     private boolean holdingVideo;
     private boolean inResume;
     private int focusSaves;
@@ -226,6 +228,7 @@ public class PlaybackService extends Service {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        handler.post(keepAlive);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         createChannel();
         session = new MediaSessionCompat(this, "fmusic");
@@ -239,7 +242,8 @@ public class PlaybackService extends Service {
 
             @Override
             public void onPause() {
-                if (playingAudio && SystemClock.elapsedRealtime() < ignorePauseUntil) return;
+                long now = SystemClock.elapsedRealtime();
+                if (now < transitionUntil || (playingAudio && now < ignorePauseUntil)) return;
                 if (acceptControl("toggle")) pause();
             }
 
@@ -338,6 +342,8 @@ public class PlaybackService extends Service {
 
     @Override
     public void onDestroy() {
+        handler.removeCallbacks(keepAlive);
+        handler.removeCallbacks(continuePlay);
         stopPlayback();
         if (session != null) {
             session.setActive(false);
@@ -350,6 +356,9 @@ public class PlaybackService extends Service {
 
     void play(String url) {
         holdingVideo = false;
+        wantPlaying = true;
+        continueTries = 0;
+        handler.removeCallbacks(continuePlay);
         if (session != null) session.setActive(true);
         if (!allowed(url)) {
             emit("error", 0, 0, "播放地址无效");
@@ -553,16 +562,20 @@ public class PlaybackService extends Service {
 
     void pause() {
         userPaused = true;
+        wantPlaying = false;
         allowResume = false;
         handler.removeCallbacks(recoverFocus);
+        handler.removeCallbacks(continuePlay);
         pausePlayer();
     }
 
     void yieldForVideo() {
         holdingVideo = true;
         userPaused = true;
+        wantPlaying = false;
         allowResume = false;
         handler.removeCallbacks(recoverFocus);
+        handler.removeCallbacks(continuePlay);
         handler.removeCallbacks(tick);
         playingAudio = false;
         if (safePlaying()) {
@@ -609,6 +622,7 @@ public class PlaybackService extends Service {
         boolean active = player != null || foreground || !currentUrl.isEmpty();
         handler.removeCallbacks(tick);
         handler.removeCallbacks(recoverFocus);
+        handler.removeCallbacks(continuePlay);
         currentUrl = "";
         currentFetchedAt = 0;
         nextTrack = null;
@@ -620,6 +634,7 @@ public class PlaybackService extends Service {
         errorSkips = 0;
         completed = false;
         playingAudio = false;
+        wantPlaying = false;
         userPaused = false;
         allowResume = false;
         releasePlayer();
@@ -726,6 +741,7 @@ public class PlaybackService extends Service {
         inResume = true;
         try {
             userPaused = false;
+            wantPlaying = true;
             allowResume = true;
             if (session != null) session.setActive(true);
             requestFocus();
@@ -898,11 +914,65 @@ public class PlaybackService extends Service {
         emit("command", 0, 0, "reprime");
     }
 
+    private long transitionUntil;
+
     private void armTransition() {
-        long until = SystemClock.elapsedRealtime() + 1600;
+        long until = SystemClock.elapsedRealtime() + 3000;
+        transitionUntil = until;
         ignorePauseUntil = until;
         ignoreFocusLossUntil = until;
     }
+
+    private void scheduleContinue() {
+        if (repeatOne || holdingVideo || userPaused) return;
+        handler.removeCallbacks(continuePlay);
+        handler.post(continuePlay);
+    }
+
+    private final Runnable continuePlay = new Runnable() {
+        @Override
+        public void run() {
+            if (holdingVideo || userPaused || safePlaying()) {
+                continueTries = 0;
+                return;
+            }
+            if (continueTries >= 3) {
+                emit("error", 0, 0, "播放失败");
+                showForeground();
+                return;
+            }
+            continueTries += 1;
+            if (player != null && prepared && !completed && requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                resume();
+                if (safePlaying()) {
+                    continueTries = 0;
+                    return;
+                }
+            }
+            Track next = peekUpcoming();
+            if (continueTries == 1 && next != null && fresh(next) && playUpcoming()) {
+                handler.postDelayed(this, 2500);
+                return;
+            }
+            wantPlaying = true;
+            completed = true;
+            playingAudio = false;
+            emit("paused", position(), duration(), "");
+            emit("command", 0, 0, continueTries == 1 ? "next" : "continue");
+            showForeground();
+            handler.postDelayed(this, 2500);
+        }
+    };
+
+    private final Runnable keepAlive = new Runnable() {
+        @Override
+        public void run() {
+            handler.postDelayed(this, 3000);
+            if (holdingVideo || userPaused || !wantPlaying || completed || safePlaying()) return;
+            if (player == null || !prepared) return;
+            if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) resume();
+        }
+    };
 
     private void skip(boolean toNext) {
         if (toNext) {
@@ -943,6 +1013,7 @@ public class PlaybackService extends Service {
         completed = false;
         holdingVideo = false;
         userPaused = false;
+        wantPlaying = true;
         allowResume = true;
         if (session != null) session.setActive(true);
         currentUrl = track.url;
@@ -971,6 +1042,10 @@ public class PlaybackService extends Service {
             prepared = true;
             errorSkips = 0;
             handoffs = 0;
+            continueTries = 0;
+            focusSaves = 0;
+            wantPlaying = true;
+            armTransition();
             ready.start();
             completed = false;
             playingAudio = true;
@@ -983,10 +1058,12 @@ public class PlaybackService extends Service {
             completed = true;
             playingAudio = false;
             handler.removeCallbacks(tick);
-            if (playUpcoming()) return;
-            if (handoffNext()) return;
-            emit("ended", position(), duration(), "");
-            showForeground();
+            Track nextTrack = peekUpcoming();
+            if (repeatOne || (nextTrack != null && fresh(nextTrack))) {
+                if (playUpcoming()) return;
+            }
+            continueTries = 0;
+            scheduleContinue();
         });
         next.setOnErrorListener((mp, what, extra) -> {
             if (player != next) return true;
@@ -998,10 +1075,11 @@ public class PlaybackService extends Service {
                     askRefresh();
                     return true;
                 }
-            } else if (errorSkips < 2 && playUpcoming()) {
-                errorSkips += 1;
-                return true;
-            } else if (handoffNext()) {
+            } else {
+                completed = true;
+                playingAudio = false;
+                handler.removeCallbacks(tick);
+                scheduleContinue();
                 return true;
             }
             errorSkips = 0;
@@ -1147,7 +1225,8 @@ public class PlaybackService extends Service {
 
     private void showForeground() {
         if (holdingVideo) return;
-        ignorePauseUntil = SystemClock.elapsedRealtime() + 600;
+        long guard = SystemClock.elapsedRealtime() + 600;
+        if (guard > ignorePauseUntil) ignorePauseUntil = guard;
         publishSession();
         int playIcon = playingAudio ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play;
         String playLabel = playingAudio ? "暂停" : "播放";

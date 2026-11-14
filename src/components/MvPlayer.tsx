@@ -204,78 +204,38 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
     const place = () => {
       const viewW = window.visualViewport?.width || window.innerWidth
       const viewH = window.visualViewport?.height || window.innerHeight
-      const shortSide = Math.min(viewW, viewH)
-      const longSide = Math.max(viewW, viewH)
       const stageW = stage.clientWidth
       const stageH = stage.clientHeight
-      // 竖屏按短边限制宽度，避免退出全屏后左右黑边、上下超出屏幕。
-      // 全屏横屏用真正的横屏尺寸铺满，舞台还没转过来时也不要按竖屏宽度去留黑边。
-      let sw = Math.min(stageW || shortSide, shortSide)
-      let sh = Math.min(stageH || longSide, longSide)
-      if (fullscreen) {
-        if (stageW >= stageH && stageW > 0 && stageH > 0) {
-          sw = stageW
-          sh = stageH
-        } else if (viewW >= viewH && viewW > 0 && viewH > 0) {
-          sw = viewW
-          sh = viewH
-        } else {
-          sw = longSide
-          sh = shortSide
-        }
-      }
+      // 只用当前看得到的区域。画面按这个区域里放得下的最大尺寸居中，整段都留在屏幕内。
+      const sw = Math.max(1, Math.min(stageW || viewW, viewW || stageW))
+      const sh = Math.max(1, Math.min(stageH || viewH, viewH || stageH))
       const vw = video?.videoWidth || 0
       const vh = video?.videoHeight || 0
-      if (!video || !sw || !sh) {
+      if (!video) {
         setDanmakuBox({ top: 12, left: 8, right: 8 })
         return
       }
-      if (!vw || !vh) {
-        const pictureWidth = sw
-        const pictureHeight = Math.min(sh, Math.round(sw * 9 / 16))
-        const pictureTop = Math.max(0, (sh - pictureHeight) / 2)
-        video.style.left = '0px'
-        video.style.top = `${pictureTop}px`
-        video.style.right = 'auto'
-        video.style.bottom = 'auto'
-        video.style.width = `${pictureWidth}px`
-        video.style.height = `${pictureHeight}px`
-        video.style.maxWidth = '100%'
-        video.style.maxHeight = '100%'
-        video.style.objectFit = 'contain'
-        video.style.transform = 'none'
-        setDanmakuBox({ top: Math.round(pictureTop + 8), left: 8, right: 8 })
-        return
+      const ratio = vw > 0 && vh > 0 ? vw / vh : 16 / 9
+      let pictureWidth = sw
+      let pictureHeight = Math.max(1, Math.round(pictureWidth / ratio))
+      if (pictureHeight > sh) {
+        pictureHeight = sh
+        pictureWidth = Math.max(1, Math.round(pictureHeight * ratio))
       }
-      // 全屏用 cover 铺满宽屏，字幕在画面底部，高出的部分从顶部裁掉。
-      const scale = fullscreen ? Math.max(sw / vw, sh / vh) : Math.min(sw / vw, sh / vh)
-      const pictureWidth = Math.max(1, Math.round(vw * scale))
-      const pictureHeight = Math.max(1, Math.round(vh * scale))
-      let pictureLeft = (sw - pictureWidth) / 2
-      let coverBottom = sh
-      if (fullscreen && chrome) {
-        const bar = stage.parentElement?.querySelector('.mv-bar')
-        if (bar instanceof HTMLElement) {
-          const barTop = bar.getBoundingClientRect().top - stage.getBoundingClientRect().top
-          if (barTop > sh * 0.45) coverBottom = barTop - 8
-        }
-      }
-      const pictureTop = fullscreen
-        ? (pictureHeight > coverBottom ? coverBottom - pictureHeight : (sh - pictureHeight) / 2)
-        : Math.max(0, (sh - pictureHeight) / 2)
-      if (!fullscreen) pictureLeft = Math.max(0, pictureLeft)
+      const pictureLeft = Math.max(0, Math.round((sw - pictureWidth) / 2))
+      const pictureTop = Math.max(0, Math.round((sh - pictureHeight) / 2))
       video.style.left = `${pictureLeft}px`
       video.style.top = `${pictureTop}px`
       video.style.right = 'auto'
       video.style.bottom = 'auto'
       video.style.width = `${pictureWidth}px`
       video.style.height = `${pictureHeight}px`
-      video.style.maxWidth = fullscreen ? 'none' : '100%'
-      video.style.maxHeight = fullscreen ? 'none' : '100%'
-      video.style.objectFit = fullscreen ? 'fill' : 'contain'
-      video.style.objectPosition = 'center bottom'
+      video.style.maxWidth = '100%'
+      video.style.maxHeight = '100%'
+      video.style.objectFit = 'contain'
+      video.style.objectPosition = 'center'
       video.style.transform = 'none'
-      let top = Math.max(12, pictureTop + 8)
+      let top = pictureTop + 8
       if (fullscreen && chrome) {
         const head = stage.parentElement?.querySelector('.mv-head')
         if (head instanceof HTMLElement) {
@@ -284,9 +244,9 @@ export function MvPlayer({ music, url, quality, qualities, loading, onClose, onQ
         }
       }
       setDanmakuBox({
-        top: Math.round(top),
-        left: Math.round(Math.max(8, pictureLeft + 8)),
-        right: Math.round(Math.max(8, sw - (pictureLeft + pictureWidth) + 8)),
+        top: Math.round(Math.max(12, top)),
+        left: Math.round(pictureLeft + 8),
+        right: Math.round(Math.max(8, sw - pictureLeft - pictureWidth + 8)),
       })
     }
     place()

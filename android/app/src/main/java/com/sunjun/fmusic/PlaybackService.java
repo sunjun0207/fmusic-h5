@@ -137,8 +137,10 @@ public class PlaybackService extends Service {
     private boolean wantPlaying;
     private boolean holdingVideo;
     private boolean inResume;
-    private int focusSaves;
-    private long focusSaveAt;
+    private boolean pausedByFocus;
+    private boolean hasFocus;
+    private boolean requestingFocus;
+    private PowerManager.WakeLock wakeLock;
     private long ignorePauseUntil;
     private boolean favored;
     private boolean lyricOn;
@@ -243,7 +245,7 @@ public class PlaybackService extends Service {
             @Override
             public void onPause() {
                 long now = SystemClock.elapsedRealtime();
-                if (now < transitionUntil || (playingAudio && now < ignorePauseUntil)) return;
+                if (pausedByFocus || now < transitionUntil || now < ignorePauseUntil) return;
                 if (acceptControl("toggle")) pause();
             }
 
@@ -344,6 +346,7 @@ public class PlaybackService extends Service {
     public void onDestroy() {
         handler.removeCallbacks(keepAlive);
         handler.removeCallbacks(continuePlay);
+        dropWake();
         stopPlayback();
         if (session != null) {
             session.setActive(false);
@@ -357,7 +360,9 @@ public class PlaybackService extends Service {
     void play(String url) {
         holdingVideo = false;
         wantPlaying = true;
+        pausedByFocus = false;
         continueTries = 0;
+        holdWake();
         handler.removeCallbacks(continuePlay);
         if (session != null) session.setActive(true);
         if (!allowed(url)) {
@@ -562,19 +567,20 @@ public class PlaybackService extends Service {
 
     void pause() {
         userPaused = true;
+        pausedByFocus = false;
         wantPlaying = false;
         allowResume = false;
-        handler.removeCallbacks(recoverFocus);
         handler.removeCallbacks(continuePlay);
         pausePlayer();
+        dropWake();
     }
 
     void yieldForVideo() {
         holdingVideo = true;
         userPaused = true;
+        pausedByFocus = false;
         wantPlaying = false;
         allowResume = false;
-        handler.removeCallbacks(recoverFocus);
         handler.removeCallbacks(continuePlay);
         handler.removeCallbacks(tick);
         playingAudio = false;
@@ -584,6 +590,7 @@ public class PlaybackService extends Service {
             } catch (IllegalStateException ignored) {}
         }
         abandonFocus();
+        dropWake();
         if (session != null) session.setActive(false);
         hideForeground();
     }
@@ -621,7 +628,6 @@ public class PlaybackService extends Service {
     void stopPlayback() {
         boolean active = player != null || foreground || !currentUrl.isEmpty();
         handler.removeCallbacks(tick);
-        handler.removeCallbacks(recoverFocus);
         handler.removeCallbacks(continuePlay);
         currentUrl = "";
         currentFetchedAt = 0;
@@ -636,9 +642,12 @@ public class PlaybackService extends Service {
         playingAudio = false;
         wantPlaying = false;
         userPaused = false;
+        pausedByFocus = false;
+        hasFocus = false;
         allowResume = false;
         releasePlayer();
         abandonFocus();
+        dropWake();
         hideForeground();
         publishSession();
         if (active) emit("paused", 0, 0, "");
@@ -728,12 +737,26 @@ public class PlaybackService extends Service {
     }
 
     private void toggle() {
-        if (player == null || completed) {
-            emit("command", 0, 0, "toggle");
+        if (safePlaying()) {
+            pause();
             return;
         }
-        if (safePlaying()) pause();
-        else resume();
+        if (player != null && prepared && !completed && currentUrlFresh()) {
+            resume();
+            return;
+        }
+        holdWake();
+        if (completed && !repeatOne) {
+            Track track = peekUpcoming();
+            if (track != null && fresh(track) && allowed(track.url)) {
+                takeUpcoming();
+                startQueued(track);
+                return;
+            }
+            emit("command", 0, 0, "next");
+            return;
+        }
+        emit("command", 0, 0, "continue");
     }
 
     private void resume() {
@@ -743,8 +766,17 @@ public class PlaybackService extends Service {
             userPaused = false;
             wantPlaying = true;
             allowResume = true;
+            pausedByFocus = false;
             if (session != null) session.setActive(true);
-            requestFocus();
+            if (requestFocus() != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                pausedByFocus = true;
+                playingAudio = false;
+                emit("paused", position(), duration(), "");
+                showForeground();
+                return;
+            }
+            pausedByFocus = false;
+            holdWake();
             try {
                 player.start();
             } catch (IllegalStateException error) {
@@ -808,7 +840,7 @@ public class PlaybackService extends Service {
 
     private boolean aging(Track track) {
         if (track == null || track.fetchedAt <= 0) return false;
-        return System.currentTimeMillis() - track.fetchedAt >= 8L * 60L * 1000L;
+        return System.currentTimeMillis() - track.fetchedAt >= 6L * 60L * 1000L;
     }
 
     private boolean currentUrlFresh() {
@@ -816,6 +848,7 @@ public class PlaybackService extends Service {
     }
 
     private void askRefresh() {
+        holdWake();
         completed = true;
         prepared = false;
         playingAudio = false;
@@ -909,7 +942,7 @@ public class PlaybackService extends Service {
         Track next = peekUpcoming();
         if (!aging(next) && currentUrlFresh()) return;
         long now = SystemClock.elapsedRealtime();
-        if (now - reprimeAt < 90000) return;
+        if (now - reprimeAt < 45000) return;
         reprimeAt = now;
         emit("command", 0, 0, "reprime");
     }
@@ -920,11 +953,11 @@ public class PlaybackService extends Service {
         long until = SystemClock.elapsedRealtime() + 3000;
         transitionUntil = until;
         ignorePauseUntil = until;
-        ignoreFocusLossUntil = until;
+        ignoreFocusLossUntil = SystemClock.elapsedRealtime() + 2000;
     }
 
     private void scheduleContinue() {
-        if (repeatOne || holdingVideo || userPaused) return;
+        if (repeatOne || holdingVideo || userPaused || pausedByFocus) return;
         handler.removeCallbacks(continuePlay);
         handler.post(continuePlay);
     }
@@ -932,17 +965,12 @@ public class PlaybackService extends Service {
     private final Runnable continuePlay = new Runnable() {
         @Override
         public void run() {
-            if (holdingVideo || userPaused || safePlaying()) {
+            if (holdingVideo || userPaused || pausedByFocus || safePlaying()) {
                 continueTries = 0;
                 return;
             }
-            if (continueTries >= 3) {
-                emit("error", 0, 0, "播放失败");
-                showForeground();
-                return;
-            }
-            continueTries += 1;
-            if (player != null && prepared && !completed && requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            holdWake();
+            if (player != null && prepared && !completed && currentUrlFresh() && hasFocus) {
                 resume();
                 if (safePlaying()) {
                     continueTries = 0;
@@ -950,17 +978,27 @@ public class PlaybackService extends Service {
                 }
             }
             Track next = peekUpcoming();
-            if (continueTries == 1 && next != null && fresh(next) && playUpcoming()) {
-                handler.postDelayed(this, 2500);
+            if (next != null && fresh(next) && playUpcoming()) {
+                continueTries = 0;
                 return;
             }
+            if (continueTries >= 6) {
+                continueTries = 0;
+                wantPlaying = true;
+                playingAudio = false;
+                showForeground();
+                if (!safePlaying()) dropWake();
+                return;
+            }
+            continueTries += 1;
             wantPlaying = true;
             completed = true;
             playingAudio = false;
             emit("paused", position(), duration(), "");
+            // 只向前要一次新地址，后面只刷新当前这首，避免后台连续跳歌。
             emit("command", 0, 0, continueTries == 1 ? "next" : "continue");
             showForeground();
-            handler.postDelayed(this, 2500);
+            handler.postDelayed(this, 4000);
         }
     };
 
@@ -968,9 +1006,10 @@ public class PlaybackService extends Service {
         @Override
         public void run() {
             handler.postDelayed(this, 3000);
-            if (holdingVideo || userPaused || !wantPlaying || completed || safePlaying()) return;
-            if (player == null || !prepared) return;
-            if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) resume();
+            if (wantPlaying && !userPaused && !holdingVideo) FMusicAudio.wake();
+            if (pausedByFocus || !hasFocus || holdingVideo || userPaused || !wantPlaying || completed || safePlaying()) return;
+            if (player == null || !prepared || !currentUrlFresh()) return;
+            resume();
         }
     };
 
@@ -982,10 +1021,7 @@ public class PlaybackService extends Service {
             }
             Track track = peekUpcoming();
             if (track == null || !fresh(track) || !allowed(track.url)) {
-                cycle.clear();
-                cycleIndex = 0;
-                cycleLoop = false;
-                nextTrack = null;
+                holdWake();
                 emit("command", 0, 0, "next");
                 return;
             }
@@ -995,6 +1031,7 @@ public class PlaybackService extends Service {
         }
         Track track = prevTrack;
         if (track == null || !fresh(track) || !allowed(track.url) || track.url.equals(currentUrl)) {
+            holdWake();
             emit("command", 0, 0, "prev");
             return;
         }
@@ -1013,8 +1050,10 @@ public class PlaybackService extends Service {
         completed = false;
         holdingVideo = false;
         userPaused = false;
+        pausedByFocus = false;
         wantPlaying = true;
         allowResume = true;
+        holdWake();
         if (session != null) session.setActive(true);
         currentUrl = track.url;
         currentFetchedAt = track.fetchedAt;
@@ -1043,9 +1082,22 @@ public class PlaybackService extends Service {
             errorSkips = 0;
             handoffs = 0;
             continueTries = 0;
-            focusSaves = 0;
             wantPlaying = true;
             armTransition();
+            if (holdingVideo || userPaused) {
+                emit("paused", 0, 0, "");
+                return;
+            }
+            if (requestFocus() != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                pausedByFocus = true;
+                playingAudio = false;
+                completed = false;
+                emit("paused", 0, 0, "");
+                showForeground();
+                return;
+            }
+            pausedByFocus = false;
+            holdWake();
             ready.start();
             completed = false;
             playingAudio = true;
@@ -1167,60 +1219,80 @@ public class PlaybackService extends Service {
 
     private int requestFocus() {
         if (audioManager == null) return AudioManager.AUDIOFOCUS_REQUEST_FAILED;
-        if (Build.VERSION.SDK_INT >= 26) {
-            if (focusRequest == null) {
-                focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                    .setAudioAttributes(
-                        new AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_MEDIA)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .build()
-                    )
-                    .setOnAudioFocusChangeListener(focusListener)
-                    .setWillPauseWhenDucked(false)
-                    .build();
+        requestingFocus = true;
+        try {
+            int result;
+            if (Build.VERSION.SDK_INT >= 26) {
+                if (focusRequest == null) {
+                    AudioFocusRequest.Builder builder = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                        .setAudioAttributes(
+                            new AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA)
+                                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                                .build()
+                        )
+                        .setOnAudioFocusChangeListener(focusListener, handler)
+                        .setWillPauseWhenDucked(false)
+                        .setAcceptsDelayedFocusGain(true);
+                    focusRequest = builder.build();
+                }
+                result = audioManager.requestAudioFocus(focusRequest);
+            } else {
+                result = audioManager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
             }
-            return audioManager.requestAudioFocus(focusRequest);
+            hasFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+            if (hasFocus) ignoreFocusLossUntil = Math.max(ignoreFocusLossUntil, SystemClock.elapsedRealtime() + 1200);
+            return result;
+        } finally {
+            requestingFocus = false;
         }
-        return audioManager.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
     }
 
     private void abandonFocus() {
         if (audioManager == null) return;
+        hasFocus = false;
         if (Build.VERSION.SDK_INT >= 26 && focusRequest != null) audioManager.abandonAudioFocusRequest(focusRequest);
         else audioManager.abandonAudioFocus(focusListener);
     }
 
-    private final Runnable recoverFocus = new Runnable() {
-        @Override
-        public void run() {
-            if (holdingVideo || userPaused || player == null || completed || safePlaying()) return;
-            long now = SystemClock.elapsedRealtime();
-            if (now - focusSaveAt > 12000) focusSaves = 0;
-            if (focusSaves >= 5) return;
-            focusSaves += 1;
-            focusSaveAt = now;
-            if (requestFocus() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) resume();
-            else handler.postDelayed(this, 1200);
-        }
-    };
-
     private void onFocus(int change) {
-        if (holdingVideo) return;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            handler.post(() -> onFocus(change));
+            return;
+        }
+        if (holdingVideo || requestingFocus) return;
         if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) return;
         if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
             if (SystemClock.elapsedRealtime() < ignoreFocusLossUntil) return;
             if (userPaused || player == null) return;
             if (!safePlaying() && !playingAudio) return;
+            hasFocus = false;
+            pausedByFocus = true;
             allowResume = true;
             pausePlayer();
-            handler.removeCallbacks(recoverFocus);
-            handler.postDelayed(recoverFocus, change == AudioManager.AUDIOFOCUS_LOSS ? 350 : 700);
             return;
         }
-        if (change == AudioManager.AUDIOFOCUS_GAIN && !userPaused && allowResume && player != null && !completed && !safePlaying()) {
-            resume();
+        if (change == AudioManager.AUDIOFOCUS_GAIN) {
+            hasFocus = true;
+            if (pausedByFocus && !userPaused && !holdingVideo && player != null && !completed && !safePlaying()) {
+                pausedByFocus = false;
+                resume();
+            }
         }
+    }
+
+    private void holdWake() {
+        if (wakeLock == null) {
+            PowerManager manager = (PowerManager) getSystemService(POWER_SERVICE);
+            if (manager == null) return;
+            wakeLock = manager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fmusic:playback");
+            wakeLock.setReferenceCounted(false);
+        }
+        if (!wakeLock.isHeld()) wakeLock.acquire(3L * 60L * 60L * 1000L);
+    }
+
+    private void dropWake() {
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
     }
 
     private void showForeground() {

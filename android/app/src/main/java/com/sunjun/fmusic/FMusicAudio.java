@@ -11,11 +11,29 @@ public class FMusicAudio {
 
     private final Activity activity;
     private final WebView webView;
+    private static WebView sharedWebView;
 
     FMusicAudio(Activity activity, WebView webView) {
         this.activity = activity;
         this.webView = webView;
+        sharedWebView = webView;
+        keepPageAlive(webView);
         PlaybackService.setSink(this::emit);
+    }
+
+    static void wake() {
+        WebView view = sharedWebView;
+        if (view == null) return;
+        view.post(() -> keepPageAlive(view));
+    }
+
+    private static void keepPageAlive(WebView view) {
+        if (view == null) return;
+        if (Build.VERSION.SDK_INT >= 26) {
+            view.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        }
+        view.onResume();
+        view.resumeTimers();
     }
 
     @JavascriptInterface
@@ -132,6 +150,7 @@ public class FMusicAudio {
             ")";
         webView.post(() -> {
             try {
+                keepPageAlive(webView);
                 if (Build.VERSION.SDK_INT >= 19) webView.evaluateJavascript(script, null);
             } catch (Exception ignored) {}
         });

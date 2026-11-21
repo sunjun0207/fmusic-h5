@@ -947,7 +947,7 @@ export default function App() {
     const timer = window.setInterval(() => {
       if (!currentRef.current || mvActiveRef.current) return
       void primeNativeQueue()
-    }, 8 * 60 * 1000)
+    }, 6 * 60 * 1000)
     return () => window.clearInterval(timer)
   }, [primeNativeQueue])
 
@@ -1038,7 +1038,7 @@ export default function App() {
       else if (command === 'continue') {
         const song = currentRef.current
         const audio = audioRef.current
-        if (!song || !audio || mvActiveRef.current || playInFlightRef.current || !audio.paused) return
+        if (!song || !audio || mvActiveRef.current || playInFlightRef.current) return
         loadedIdRef.current = ''
         loadedAtRef.current = 0
         void ensurePlay(song)

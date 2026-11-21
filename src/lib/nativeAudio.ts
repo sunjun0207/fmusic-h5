@@ -241,6 +241,8 @@ class NativeSongPlayer extends EventTarget {
     }
     if (event.type === 'paused') {
       this.isPaused = true
+      this.pending?.resolve()
+      this.pending = null
       this.emit('pause')
       return
     }

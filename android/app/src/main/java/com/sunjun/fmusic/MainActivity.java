@@ -75,6 +75,9 @@ public class MainActivity extends BridgeActivity {
     private void keepWebViewRunning() {
         if (getBridge() == null || getBridge().getWebView() == null) return;
         WebView webView = getBridge().getWebView();
+        if (Build.VERSION.SDK_INT >= 26) {
+            webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        }
         webView.onResume();
         webView.resumeTimers();
     }

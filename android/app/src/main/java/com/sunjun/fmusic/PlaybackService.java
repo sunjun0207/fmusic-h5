@@ -38,6 +38,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import org.json.JSONArray;
@@ -65,13 +66,17 @@ public class PlaybackService extends Service {
         final String title;
         final String artist;
         final String cover;
+        final String id;
         final long fetchedAt;
 
-        Track(String url, String title, String artist, String cover, long fetchedAt) {
+        Track(String url, String title, String artist, String cover, String id, long fetchedAt) {
             this.url = url == null ? "" : url;
             this.title = title == null ? "" : title;
             this.artist = artist == null ? "" : artist;
             this.cover = cover == null ? "" : cover;
+            String clean = id == null ? "" : id.trim();
+            if (clean.regionMatches(true, 0, "MUSIC_", 0, 6)) clean = clean.substring(6);
+            this.id = clean;
             this.fetchedAt = fetchedAt > 0 ? fetchedAt : System.currentTimeMillis();
         }
     }
@@ -120,6 +125,10 @@ public class PlaybackService extends Service {
     private int continueTries;
     private long handoffAt;
     private long reprimeAt;
+    private long refreshAt;
+    private int refreshGen;
+    private boolean refreshPlaying;
+    private String bitrate = "320kmp3";
     private long ignoreFocusLossUntil;
     private long currentFetchedAt;
     private String title = "碎冰音乐";
@@ -218,12 +227,16 @@ public class PlaybackService extends Service {
     }
 
     private static Track trackOf(String url, String songTitle, String songArtist, String cover) {
-        return trackOf(url, songTitle, songArtist, cover, System.currentTimeMillis());
+        return trackOf(url, songTitle, songArtist, cover, "", System.currentTimeMillis());
     }
 
     private static Track trackOf(String url, String songTitle, String songArtist, String cover, long fetchedAt) {
+        return trackOf(url, songTitle, songArtist, cover, "", fetchedAt);
+    }
+
+    private static Track trackOf(String url, String songTitle, String songArtist, String cover, String id, long fetchedAt) {
         if (!allowed(url)) return null;
-        return new Track(url, songTitle, songArtist, cover, fetchedAt);
+        return new Track(url, songTitle, songArtist, cover, id, fetchedAt);
     }
 
     @Override
@@ -808,13 +821,16 @@ public class PlaybackService extends Service {
                     JSONObject row = list.optJSONObject(i);
                     if (row == null) continue;
                     long at = row.optLong("at", System.currentTimeMillis());
-                    Track track = trackOf(row.optString("url", ""), row.optString("title", ""), row.optString("artist", ""), row.optString("cover", ""), at);
+                    String br = row.optString("br", "");
+                    if (!br.isEmpty()) bitrate = br;
+                    Track track = trackOf(row.optString("url", ""), row.optString("title", ""), row.optString("artist", ""), row.optString("cover", ""), row.optString("id", ""), at);
                     if (track == null) continue;
                     if (!next.isEmpty() && track.url.equals(next.get(next.size() - 1).url)) continue;
                     next.add(track);
                 }
             } catch (Exception ignored) {}
         }
+        refreshGen++;
         int index = 0;
         boolean found = false;
         for (int i = 0; i < next.size(); i++) {
@@ -940,11 +956,146 @@ public class PlaybackService extends Service {
 
     private void maybeReprime() {
         Track next = peekUpcoming();
-        if (!aging(next) && currentUrlFresh()) return;
+        boolean due = repeatOne ? !currentUrlFresh() : next == null || aging(next) || !fresh(next);
+        if (!due && currentUrlFresh()) return;
+        scheduleRefresh(false);
         long now = SystemClock.elapsedRealtime();
         if (now - reprimeAt < 45000) return;
         reprimeAt = now;
         emit("command", 0, 0, "reprime");
+    }
+
+    private void scheduleRefresh(boolean playWhenDone) {
+        if (holdingVideo || userPaused) return;
+        long now = SystemClock.elapsedRealtime();
+        if (!playWhenDone && (refreshPlaying || now - refreshAt < 20000)) return;
+        ArrayList<Track> batch = new ArrayList<>();
+        if (repeatOne) {
+            if (!songId.isEmpty() && (playWhenDone || !currentUrlFresh())) {
+                Track current = trackOf(currentUrl.isEmpty() ? "https://kuwo.cn/" : currentUrl, title, artist, coverUrl, songId, currentFetchedAt);
+                if (current == null) current = new Track("https://www.kuwo.cn/", title, artist, coverUrl, songId, currentFetchedAt);
+                batch.add(current);
+            }
+        } else {
+            for (int n = 0; n < cycle.size() && batch.size() < 4; n++) {
+                int index = cycleIndex + n;
+                if (index >= cycle.size()) {
+                    if (!cycleLoop) break;
+                    index = index % cycle.size();
+                }
+                Track track = cycle.get(index);
+                if (track.id.isEmpty()) continue;
+                if (!playWhenDone && fresh(track) && !aging(track)) continue;
+                batch.add(track);
+            }
+        }
+        if (batch.isEmpty()) {
+            if (playWhenDone) scheduleContinue();
+            return;
+        }
+        if (playWhenDone) refreshPlaying = true;
+        refreshAt = now;
+        final int gen = ++refreshGen;
+        final String rate = bitrate;
+        final boolean play = playWhenDone;
+        final ArrayList<Track> pending = batch;
+        holdWake();
+        new Thread(() -> {
+            ArrayList<Track> done = new ArrayList<>();
+            for (Track track : pending) {
+                String url = fetchPlayUrl(track.id, rate);
+                if (url.isEmpty()) continue;
+                Track freshTrack = trackOf(url, track.title, track.artist, track.cover, track.id, System.currentTimeMillis());
+                if (freshTrack != null) done.add(freshTrack);
+            }
+            handler.post(() -> applyFresh(gen, done, play));
+        }, "fmusic-url").start();
+    }
+
+    private void applyFresh(int gen, ArrayList<Track> done, boolean play) {
+        if (gen != refreshGen) return;
+        if (play) refreshPlaying = false;
+        for (Track freshTrack : done) {
+            for (int i = 0; i < cycle.size(); i++) {
+                if (freshTrack.id.equals(cycle.get(i).id)) cycle.set(i, freshTrack);
+            }
+            if (!safePlaying() && freshTrack.id.equals(songId)) {
+                currentUrl = freshTrack.url;
+                currentFetchedAt = freshTrack.fetchedAt;
+            }
+        }
+        nextTrack = peekUpcoming();
+        if (!play || !wantPlaying || userPaused || holdingVideo || safePlaying()) return;
+        if (repeatOne) {
+            for (Track freshTrack : done) {
+                if (!freshTrack.id.equals(songId)) continue;
+                currentUrl = freshTrack.url;
+                currentFetchedAt = freshTrack.fetchedAt;
+                completed = false;
+                open(freshTrack.url);
+                return;
+            }
+        }
+        Track next = peekUpcoming();
+        if (next != null && fresh(next) && playUpcoming()) return;
+        scheduleContinue();
+    }
+
+    private String fetchPlayUrl(String rid, String br) {
+        if (rid == null || rid.isEmpty()) return "";
+        String rate = br == null || br.isEmpty() ? bitrate : br;
+        boolean flac = rate.toLowerCase(Locale.ROOT).contains("flac");
+        String format = flac ? "flac|mp3" : "mp3";
+        String plain = "user=0&corp=kuwo&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk&p2p=1&type=convert_url2&sig=0&format="
+            + format
+            + "&rid="
+            + rid;
+        if (!flac && !rate.isEmpty()) plain += "&br=" + rate;
+        String address;
+        try {
+            address = "https://nmobi.kuwo.cn/mobi.s?f=kuwo&q=" + URLEncoder.encode(KuwoDes.encryptQuery(plain), "UTF-8");
+        } catch (Exception error) {
+            return "";
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(address).openConnection();
+                connection.setConnectTimeout(8000);
+                connection.setReadTimeout(12000);
+                connection.setInstanceFollowRedirects(true);
+                connection.setUseCaches(false);
+                connection.setRequestProperty("Connection", "close");
+                connection.setRequestProperty("User-Agent", "okhttp/3.10.0");
+                int code = connection.getResponseCode();
+                if (code < 200 || code >= 300) continue;
+                String url = "";
+                for (String line : readLimited(connection.getInputStream()).split("\n")) {
+                    int eq = line.indexOf('=');
+                    if (eq <= 0) continue;
+                    if ("url".equals(line.substring(0, eq).trim())) {
+                        url = httpsKuwo(line.substring(eq + 1).trim());
+                        break;
+                    }
+                }
+                if (allowed(url)) return url;
+            } catch (Exception ignored) {
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }
+        return "";
+    }
+
+    private static String httpsKuwo(String url) {
+        if (url == null) return "";
+        if (!url.regionMatches(true, 0, "http://", 0, 7)) return url;
+        Uri uri = Uri.parse(url);
+        String host = uri.getHost();
+        if (host == null) return url;
+        host = host.toLowerCase(Locale.ROOT);
+        if (!"kuwo.cn".equals(host) && !host.endsWith(".kuwo.cn")) return url;
+        return "https://" + url.substring(7);
     }
 
     private long transitionUntil;
@@ -1020,9 +1171,14 @@ public class PlaybackService extends Service {
                 return;
             }
             Track track = peekUpcoming();
-            if (track == null || !fresh(track) || !allowed(track.url)) {
+            if (track == null || !allowed(track.url)) {
                 holdWake();
                 emit("command", 0, 0, "next");
+                return;
+            }
+            if (!fresh(track)) {
+                holdWake();
+                scheduleRefresh(true);
                 return;
             }
             takeUpcoming();
@@ -1057,8 +1213,10 @@ public class PlaybackService extends Service {
         if (session != null) session.setActive(true);
         currentUrl = track.url;
         currentFetchedAt = track.fetchedAt;
+        if (!track.id.isEmpty()) setSong(track.id);
+        else dropLyrics(true);
         open(track.url);
-        emit("advanced", 0, 0, track.url);
+        emit("advanced", 0, 0, track.url + "\n" + track.id);
     }
 
     private void open(String url) {
@@ -1115,6 +1273,10 @@ public class PlaybackService extends Service {
                 if (playUpcoming()) return;
             }
             continueTries = 0;
+            if ((repeatOne && !songId.isEmpty()) || (nextTrack != null && !nextTrack.id.isEmpty())) {
+                scheduleRefresh(true);
+                return;
+            }
             scheduleContinue();
         });
         next.setOnErrorListener((mp, what, extra) -> {
@@ -1131,6 +1293,11 @@ public class PlaybackService extends Service {
                 completed = true;
                 playingAudio = false;
                 handler.removeCallbacks(tick);
+                Track upcoming = peekUpcoming();
+                if ((upcoming != null && !upcoming.id.isEmpty()) || !songId.isEmpty()) {
+                    scheduleRefresh(true);
+                    return true;
+                }
                 scheduleContinue();
                 return true;
             }

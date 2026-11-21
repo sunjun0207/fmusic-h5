@@ -22,6 +22,8 @@ export type NativeTrackInfo = {
   artist: string
   cover: string
   at?: number
+  id?: string
+  br?: string
 }
 
 const emptyTrack: NativeTrackInfo = { url: '', title: '', artist: '', cover: '' }
@@ -257,7 +259,11 @@ class NativeSongPlayer extends EventTarget {
     }
     if (event.type === 'advanced') {
       this.errorToken += 1
-      this.attrSrc = event.extra || this.attrSrc
+      const extra = event.extra || ''
+      const split = extra.indexOf('\n')
+      const url = split >= 0 ? extra.slice(0, split) : extra
+      const songId = split >= 0 ? extra.slice(split + 1) : ''
+      this.attrSrc = url || this.attrSrc
       this.remote = true
       this.time = 0
       this.length = 0
@@ -270,7 +276,7 @@ class NativeSongPlayer extends EventTarget {
       this.emit('durationchange')
       this.emit('play')
       this.emit('playing')
-      window.dispatchEvent(new CustomEvent('fmusic-native-advanced', { detail: this.attrSrc }))
+      window.dispatchEvent(new CustomEvent('fmusic-native-advanced', { detail: { url: this.attrSrc, id: songId } }))
       return
     }
     if (event.type === 'command') {

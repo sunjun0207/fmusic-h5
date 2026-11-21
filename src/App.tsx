@@ -130,6 +130,8 @@ function nativeInfo(track: PrimedTrack): NativeTrackInfo {
     artist: track.item.artist,
     cover: coverUrl(track.item.image, 300),
     at: track.fetchedAt,
+    id: track.item.id.replace(/^MUSIC_/i, ''),
+    br: getSettings().quality,
   }
 }
 
@@ -876,28 +878,33 @@ export default function App() {
   useEffect(() => {
     const onAdvanced = (event: Event) => {
       if (mvActiveRef.current) return
-      const url = event instanceof CustomEvent ? String(event.detail || '') : ''
+      const detail = event instanceof CustomEvent ? event.detail : ''
+      const url = typeof detail === 'string' ? detail : String(detail?.url || '')
+      const songId = typeof detail === 'string' ? '' : String(detail?.id || '').replace(/^MUSIC_/i, '')
       const primed =
         (url ? nativeTracksRef.current.get(url) : undefined) ??
         [primedNextRef.current, primedPrevRef.current].find((track) => track && url && track.url === url) ??
+        [...nativeTracksRef.current.values()].find((track) => songId && track.item.id.replace(/^MUSIC_/i, '') === songId) ??
         null
+      const queued = !primed && songId ? queueRef.current.find((song) => song.id.replace(/^MUSIC_/i, '') === songId) ?? null : null
+      const item = primed?.item ?? queued
       primedNextRef.current = null
       primedPrevRef.current = null
       heardTimeRef.current = 0
       skipEndRef.current = false
       finishedSrcRef.current = ''
       const cur = currentRef.current
-      if (primed && cur && primed.item.id !== cur.id) {
-        playHistoryRef.current = primed.history
-        currentRef.current = primed.item
-        loadedIdRef.current = primed.item.id
-        loadedAtRef.current = primed.fetchedAt || Date.now()
-        setCurrent(primed.item)
-        addRecentPlay(primed.item)
+      if (item && cur && item.id !== cur.id) {
+        if (primed) playHistoryRef.current = primed.history
+        currentRef.current = item
+        loadedIdRef.current = item.id
+        loadedAtRef.current = primed?.fetchedAt || Date.now()
+        setCurrent(item)
+        addRecentPlay(item)
         setLibraryVersion((version) => version + 1)
-        setDetail((song) => (song ? primed.item : song))
-        noteNativeSong(primed.item.id)
-        noteNativeTrack(primed.item.title, primed.item.artist, coverUrl(primed.item.image, 300), isFavorite(primed.item.id))
+        setDetail((song) => (song ? item : song))
+        noteNativeSong(item.id)
+        noteNativeTrack(item.title, item.artist, coverUrl(item.image, 300), isFavorite(item.id))
       }
       setCurrentTime(0)
       setDuration(0)
